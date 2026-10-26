@@ -634,6 +634,15 @@ input, textarea { font: inherit; color: inherit; }
   --gutter: clamp(0rem, 4vw, 3rem);
 }
 
+/*
+ * The box overhangs the cards by a little. Flush with them it looked like
+ * one more card in the stack; a touch wider reads as the surface the stack
+ * is sitting on. It is the same measure, taken with a narrower gutter, so
+ * it scales with the column instead of drifting from it — and since the
+ * gutter shrinks faster than the grid's, it never ends up narrower.
+ */
+.shell[data-layout="feed"] .footer { --gutter: clamp(0rem, 1.6vw, 1.25rem); }
+
 /* Claude's proportion: the caption sits clear of the box, not tucked under it. */
 .footer-info { margin-top: 4px; }
 
