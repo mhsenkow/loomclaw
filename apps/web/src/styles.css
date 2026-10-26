@@ -376,18 +376,49 @@ input, textarea { font: inherit; color: inherit; }
 .discover-layout-masonry[data-masonry="true"] > li { grid-row-end: span var(--discover-span, 24); }
 .discover-layout-masonry .discover-story { height: auto; }
 
-.discover-grid.discover-layout-list { grid-template-columns: minmax(0, 1fr); gap: .375rem; }
-.discover-layout-list .discover-story { flex-direction: row; }
-.discover-layout-list .discover-story-open { flex-direction: row; align-items: stretch; }
-.discover-layout-list .discover-story-preview {
-  width: clamp(9rem, 22vw, 16rem); flex-shrink: 0;
-  border-right: 1px solid color-mix(in srgb, var(--loom-border) 60%, transparent);
+/* ---- feed: one finding at a time, with room around it ---- */
+
+.discover-grid.discover-layout-feed {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  max-width: 54rem;
+  margin-inline: auto;
+  padding-inline: clamp(0rem, 4vw, 3rem);
 }
-.discover-layout-list .discover-story-copy { gap: .3rem; justify-content: center; padding: .625rem .875rem; }
-.discover-layout-list .discover-story h3 { font-size: .9375rem; }
-.discover-layout-list .discover-story-blurb {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+.discover-layout-feed .discover-story { height: auto; border-radius: var(--radius-lg); }
+.discover-layout-feed .discover-story-preview { padding: 1rem 1.125rem .5rem; }
+.discover-layout-feed .discover-story-copy { gap: .55rem; padding: .875rem 1.125rem 1rem; }
+.discover-layout-feed .discover-story h3 { font-size: 1.1875rem; line-height: 1.32; }
+.discover-layout-feed .discover-story-blurb { font-size: .8125rem; line-height: 1.65; }
+.discover-layout-feed .discover-story-insight { font-size: .6875rem; }
+.discover-layout-feed .discover-story-proof { padding: .3rem .5rem .3rem .875rem; font-size: .625rem; }
+
+/* ---- the card as a small app ---- */
+
+.card-app { display: flex; flex-direction: column; gap: .4rem; }
+.card-app-controls {
+  display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+  padding-top: .35rem;
+  border-top: 1px solid color-mix(in srgb, var(--loom-border) 35%, transparent);
+  font-size: .625rem; color: var(--loom-muted);
 }
+.card-app-controls label { display: flex; align-items: center; gap: .4rem; }
+.card-app-controls input[type="range"] {
+  width: 7rem; accent-color: var(--loom-accent); height: 1rem; cursor: pointer;
+}
+.card-app-value { font-family: var(--font-mono); color: var(--loom-text); min-width: 2rem; }
+.card-app-controls button {
+  padding: 1px 7px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--loom-border) 75%, transparent);
+  font-family: var(--font-mono); font-size: .625rem; color: var(--loom-muted);
+}
+.card-app-controls button:hover { color: var(--loom-text); border-color: var(--loom-accent); }
+.card-app-controls button[aria-pressed="true"] {
+  color: var(--loom-accent); border-color: var(--loom-accent);
+  background: color-mix(in srgb, var(--loom-accent) 12%, transparent);
+}
+.card-app-note { margin-left: auto; opacity: .6; font-size: .5625rem; }
+@media (max-width: 700px) { .card-app-note { display: none; } }
 
 /* ---- the card ---- */
 

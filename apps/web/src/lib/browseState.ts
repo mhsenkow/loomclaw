@@ -9,7 +9,7 @@
 
 import type { Beat } from "./types.ts";
 
-export type Layout = "flow" | "tiles" | "masonry" | "list";
+export type Layout = "flow" | "tiles" | "masonry" | "feed";
 export type Density = "compact" | "standard" | "broadsheet";
 export type Sort = "recommended" | "strongest" | "newest" | "surprising";
 export type ScopeFilter = "all" | "self" | "world" | "both";
@@ -41,6 +41,8 @@ const KEY = "loomclaw.browse";
 export function loadBrowse(): BrowseState {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<BrowseState>;
+    // "list" was this layout's name before it became a reading column.
+    if ((raw.layout as string) === "list") raw.layout = "feed";
     return { ...DEFAULT_BROWSE, ...raw, query: "" };
   } catch {
     return { ...DEFAULT_BROWSE };
@@ -71,7 +73,7 @@ export const LAYOUTS: { id: Layout; label: string; glyph: string }[] = [
   { id: "flow",    label: "Flow",    glyph: "▦" },
   { id: "tiles",   label: "Tiles",   glyph: "▣" },
   { id: "masonry", label: "Masonry", glyph: "▥" },
-  { id: "list",    label: "List",    glyph: "☰" },
+  { id: "feed",    label: "Feed",    glyph: "☰" },
 ];
 
 export const DENSITIES: { id: Density; label: string }[] = [

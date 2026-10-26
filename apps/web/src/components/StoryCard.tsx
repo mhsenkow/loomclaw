@@ -8,6 +8,7 @@
 
 import { Chart } from "./Chart.tsx";
 import { Micro } from "./Micro.tsx";
+import { CardControls } from "./CardControls.tsx";
 import { DETECTOR_LABEL, type Beat } from "../lib/types.ts";
 import type { Density, Tier } from "../lib/browseState.ts";
 
@@ -38,11 +39,22 @@ export function StoryCard({
   // Tiles are square and small; a full Vega render there is unreadable and
   // expensive, so the micro-chart stands in.
   const useMicro = layout === "tiles" || tier === "brief";
-  const height = layout === "list" ? 104 : PREVIEW_HEIGHT[tier];
+  // Feed is the reading layout: one card at a time, room to think, and the
+  // only place the card is interactive rather than illustrative.
+  const isFeed = layout === "feed";
+  const height = isFeed ? 240 : PREVIEW_HEIGHT[tier];
 
   return (
     <article className={`discover-story discover-tier-${tier} ${featured ? "discover-story-featured" : ""}`}>
+      {isFeed && (
+        <div className="discover-story-preview">
+          <CardControls insight={insight} height={height} />
+          <span className="discover-story-kind">{DETECTOR_LABEL[insight.detector]}</span>
+          {featured && <span className="discover-story-spotlight">Worth a closer look</span>}
+        </div>
+      )}
       <button className="discover-story-open" onClick={() => onOpen(beat)} aria-label={`Open: ${insight.headline}`}>
+        {!isFeed && (
         <div className="discover-story-preview">
           {useMicro ? (
             <div className="story-micro-wrap" style={{ height }}>
@@ -55,6 +67,7 @@ export function StoryCard({
           {featured && <span className="discover-story-spotlight">Worth a closer look</span>}
           <span className="discover-story-cta" aria-hidden>Open ↗</span>
         </div>
+        )}
 
         <div className="discover-story-copy">
           <p className="discover-story-eyebrow">

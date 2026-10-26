@@ -127,7 +127,7 @@ export function Weave({
                     beat={b}
                     tier={tier}
                     density={browse.density}
-                    featured={i === 0 && browse.layout !== "list"}
+                    featured={i === 0 && browse.layout !== "feed"}
                     layout={browse.layout}
                     onOpen={onZoom}
                   />

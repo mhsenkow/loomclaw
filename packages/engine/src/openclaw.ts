@@ -96,24 +96,95 @@ function run(argv: string[], timeoutMs: number, env?: Record<string, string>): P
   });
 }
 
-/** The framing we fall back to — still specific, because it is built from the statistic. */
+/**
+ * The framing written locally, when the agent is not reached.
+ *
+ * It has to be specific, because most cards get it: the agent budget is a
+ * few per sweep and a sweep publishes dozens. An earlier version branched
+ * only on detector and strength, so fourteen of twenty-five findings opened
+ * with the same sentence and the feed read as boilerplate. This one reads
+ * the actual shape of the claim — what kind of dimension it ranks, how the
+ * leader sits against the rest, whether it is about you — and says
+ * something that could only be said about this finding.
+ */
 function deterministicFraming(ins: Insight): string {
   const s = ins.statistic;
-  const top = ins.evidence.points.slice(0, 3).map((p) => p.label).join(", ");
-  const strength = s.effect_size > 6 ? "very strong" : s.effect_size > 4 ? "strong" : "moderate";
-  const byDetector: Record<string, string> = {
-    zscore_outlier: `A ${strength} departure from the rest of the set. Worth checking whether ${top} is simply recorded differently — a tool left open, a single long stretch — before reading it as a habit.`,
-    concentration: `Your attention here is far less evenly spread than chance would give. That usually reflects a real preference, though it can also mean one thing is easy to measure and the rest are not.`,
-    trend_break: `A sustained direction across ${s.n} days rather than one unusual stretch. The main alternative is that how this gets recorded changed, not that you did.`,
-    distribution_shift: `The mix moved more than the total did, so this is not simply doing more or less. ${top} account for most of the change.`,
-    cross_correlation: `These two records of you move together across ${s.n} intervals. A shared cause is plausible, but moving together is not one causing the other.`,
-  };
-  return `${byDetector[ins.detector] ?? ""} Statistic: ${s.name} = ${s.value.toFixed(3)}, p ≈ ${s.p_value.toExponential(1)}, n = ${s.n}.`;
+  const pts = ins.evidence.points;
+  const top = pts[0];
+  const rest = pts.slice(1);
+  const total = pts.reduce((a, p) => a + p.value, 0);
+  const share = total > 0 && top ? (top.value / total) * 100 : 0;
+  const runnerUp = rest[0];
+  const gap = top && runnerUp && runnerUp.value > 0 ? top.value / runnerUp.value : 0;
+  const isSelf = !ins.source_kind.includes("+") && SELF_KINDS.has(ins.source_kind);
+  const you = isSelf ? "you" : "this source";
+
+  // What kind of thing is being ranked? The answer changes what a caveat
+  // even means — an hour-of-day leader is a routine, a project leader is a
+  // choice, a place leader is an exposure.
+  const label = top?.label ?? "";
+  const kind: "hour" | "weekday" | "time" | "place" | "thing" =
+    /^\d{1,2} (AM|PM)$/.test(label) ? "hour"
+    : /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day$/.test(label) ? "weekday"
+    : /^\d{4}-\d{2}-\d{2}T/.test(label) ? "time"
+    : ins.metric.includes("region") || ins.metric.includes("country") || ins.metric.includes("city") || ins.metric.includes("state") ? "place"
+    : "thing";
+
+  const lines: string[] = [];
+
+  switch (ins.detector) {
+    case "zscore_outlier": {
+      if (kind === "hour") {
+        lines.push(`${label} is when this concentrates${isSelf ? ", which is a fact about your routine rather than your intent" : ""}.`);
+        lines.push(`The usual confound is a clock, not a habit: scheduled jobs, a timezone shift, or a tool that stamps work at the hour it was saved rather than done.`);
+      } else if (kind === "weekday") {
+        lines.push(`${label} carries ${share.toFixed(0)}% of the week here${gap > 1.2 ? `, ${gap.toFixed(1)}× the next day` : ""}.`);
+        lines.push(`Worth knowing whether that is when the work happens or only when it lands — batched commits and Friday merges both show up as a single busy day.`);
+      } else if (kind === "place") {
+        lines.push(`${label} sits well above the other ${pts.length - 1} places measured${gap > 1.5 ? `, ${gap.toFixed(1)}× the next` : ""}.`);
+        lines.push(`Coverage is the usual explanation before anything real: somewhere with more sensors, more reporting, or more people reports more of everything.`);
+      } else if (kind === "time") {
+        lines.push(`This is a departure from ${you === "you" ? "your own" : "its own"} recent run, not a comparison against anything else.`);
+        lines.push(`Before reading it as change, check the day was complete and the source did not simply skip a reporting cycle.`);
+      } else {
+        lines.push(`${label} takes ${share.toFixed(0)}% of the total across ${pts.length}${gap > 1.5 ? `, ${gap.toFixed(1)}× the runner-up` : ""}.`);
+        lines.push(`The boring version is that ${label} is measured more finely, or named more consistently, than what it is being compared against.`);
+      }
+      break;
+    }
+    case "concentration": {
+      const names = pts.slice(0, 3).map((p) => p.label).join(", ");
+      lines.push(`${names} account for most of this, which is far from how it would look if it were spread evenly.`);
+      lines.push(isSelf
+        ? `Concentration like this is usually a real preference, though it can also mean the rest is simply harder to see — anything untracked looks like absence.`
+        : `Concentration like this usually reflects structure rather than news: a few dominant actors, or a pipeline weighted toward them.`);
+      break;
+    }
+    case "trend_break": {
+      const dir = s.value > 0 ? "upward" : "downward";
+      lines.push(`A sustained ${dir} direction across ${s.n} days, not one unusual stretch — the fit explains most of the variation.`);
+      lines.push(`The alternative worth ruling out is that the measurement changed rather than the thing measured: a new device, a changed filter, a feed that began reporting differently.`);
+      break;
+    }
+    case "distribution_shift": {
+      lines.push(`The mix moved more than the total did, so this is not simply more or less of everything; ${pts.slice(0, 2).map((p) => p.label).join(" and ")} account for most of the change.`);
+      lines.push(`Check whether a category was renamed or split upstream — a reclassification looks exactly like a change in behaviour.`);
+      break;
+    }
+    case "cross_correlation": {
+      lines.push(`These two move together across ${s.n} days of changes, not merely drifting the same way over time.`);
+      lines.push(`Moving together is not one causing the other, and with this many days a shared season — a holiday, a release cycle, a weather pattern — explains most such pairs.`);
+      break;
+    }
+  }
+
+  lines.push(`Measured as ${s.name} = ${s.value.toFixed(2)}, p ≈ ${s.p_value.toExponential(1)}, n = ${s.n}.`);
+  return lines.join(" ");
 }
 
-// "You have no tools" is load-bearing: handed a tool surface, a small local
-// model will try to shell out to satisfy even a trivial request. Saying so
-// plainly removes four wasted tool calls per run and fixes the output.
+/** Collectors that read this machine; used only to pick the right pronoun. */
+const SELF_KINDS = new Set(["git", "screentime", "ai", "browsing", "health", "environment"]);
+
 const PROMPT = (ins: Insight) => `You are helping someone understand a measured pattern in their OWN behaviour, taken from their own machine. The number has ALREADY been computed and verified. Do not recompute it, do not invent new figures, and do not add any statistic that is not listed below. You have no tools and need none; answer from the text alone.
 
 FINDING

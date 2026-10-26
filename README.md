@@ -130,6 +130,14 @@ you ask.
 
 ## Why the findings are real
 
+Most cards carry a **locally written** framing, because the agent budget is a few per
+sweep and a sweep publishes dozens. That framing reads the shape of the claim — what
+kind of dimension it ranks, how the leader sits against the rest, whether it is about
+you — and names the specific confound that would explain it away: a clock rather than a
+habit for an hour-of-day leader, coverage rather than incidence for a place. An earlier
+version branched only on detector and strength, so fourteen of twenty-five findings
+opened with the same sentence and the feed read as boilerplate.
+
 **Every number is computed before any model is involved.** OpenClaw receives a
 finished statistic and is asked only what it would mean and what would falsify it.
 It cannot change a value, and when it is unreachable the finding still ships with a
