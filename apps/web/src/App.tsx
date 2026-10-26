@@ -239,7 +239,12 @@ export default function App() {
         />
       )}
 
-      <div className="shell">
+      {/*
+        The layout reaches the shell so the footer can take the feed's own
+        measure. The input sitting edge-to-edge under a 54rem reading column
+        read as two unrelated pages stacked.
+      */}
+      <div className="shell" data-layout={browse.layout}>
         <header className="topbar">
           {lens === "weave" ? (
             <DiscoverBar state={browse} onChange={updateBrowse} topics={topicList} />

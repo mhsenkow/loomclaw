@@ -605,12 +605,37 @@ input, textarea { font: inherit; color: inherit; }
 .content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .weave { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 16px; }
 
+/*
+ * The footer takes the feed's measure, not the window's. A full-width input
+ * under a 54rem reading column reads as two unrelated pages stacked; lined
+ * up with the cards it reads as the same page's bottom edge. The rule that
+ * used to separate them is gone in favour of a fade, so the feed ends
+ * rather than being cut off.
+ */
 .footer {
   flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
-  padding: 8px 16px 10px;
-  border-top: 1px solid var(--loom-border);
-  background: color-mix(in srgb, var(--loom-surface) 55%, transparent);
+  padding: 12px 16px 14px;
+  background: linear-gradient(
+    to top,
+    var(--loom-bg) 62%,
+    color-mix(in srgb, var(--loom-bg) 40%, transparent)
+  );
 }
+.footer > * {
+  width: 100%;
+  max-width: var(--measure, none);
+  margin-inline: auto;
+  padding-inline: var(--gutter, 0);
+}
+
+/* Only the feed layout has a measure of its own; the grids fill the width. */
+.shell[data-layout="feed"] {
+  --measure: 54rem;
+  --gutter: clamp(0rem, 4vw, 3rem);
+}
+
+/* Claude's proportion: the caption sits clear of the box, not tucked under it. */
+.footer-info { margin-top: 4px; }
 
 /* ---- vital signs ---- */
 
