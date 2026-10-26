@@ -6,7 +6,13 @@
   "scripts": {
     "dev": "node --watch-path=./src src/server.ts",
     "start": "node src/server.ts",
-    "sweep": "node src/cli-sweep.ts"
+    "sweep": "node src/cli-sweep.ts",
+    "test": "node --test \"test/*.test.ts\""
   },
-  "dependencies": { "@loomclaw/core-schema": "*" }
+  "dependencies": {
+    "@loomclaw/core-schema": "*"
+  },
+  "devDependencies": {
+    "vega-lite": "^5.21.0"
+  }
 }

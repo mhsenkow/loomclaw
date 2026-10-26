@@ -2,7 +2,7 @@
   "name": "loomclaw",
   "private": true,
   "version": "0.1.0",
-  "description": "LOOM // CLAW — a two-lens spatial OS for human-agent co-reasoning over live societal data",
+  "description": "LOOM // CLAW \u2014 a two-lens spatial OS for human-agent co-reasoning over live societal data",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -15,7 +15,9 @@
     "dev:engine": "npm run dev -w @loomclaw/engine",
     "dev:web": "npm run dev -w @loomclaw/web",
     "sweep": "npm run sweep -w @loomclaw/engine",
-    "check": "tsc --noEmit -p packages/core-schema && tsc --noEmit -p packages/engine && tsc --noEmit -p apps/web"
+    "check": "tsc --noEmit -p packages/core-schema && tsc --noEmit -p packages/engine && tsc --noEmit -p apps/web",
+    "test": "npm run test -w @loomclaw/engine",
+    "verify": "npm run check && npm test"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
