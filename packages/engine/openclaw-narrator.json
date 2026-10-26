@@ -1,7 +1,4 @@
 {
-  "//": "Pinned OpenClaw config for the LOOM // CLAW narrator. Deliberately minimal.",
-  "//gateway": "No gateway block: the ambient config points gateway.auth.token at a write-only secret-store entry that agent-exec cannot resolve, and the narrator has no need for a gateway at all.",
-  "//models": "Local ollama only, so narration needs no API key and no network. Must be a tool-capable model: openclaw sends a tool payload even on the lean surface, and gemma3 rejects it.",
   "models": {
     "providers": {
       "ollama": {
@@ -10,15 +7,21 @@
         "timeoutSeconds": 900,
         "models": [
           {
-            "id": "llama3.3:latest", "name": "llama3.3:latest", "input": ["text"],
+            "id": "qwen2.5:7b", "name": "qwen2.5:7b", "input": ["text"],
             "contextWindow": 32768, "contextTokens": 24576, "maxTokens": 1024,
             "params": { "keep_alive": "30m", "num_ctx": 32768 },
             "compat": { "supportsTools": true }
           },
           {
-            "id": "qwen2.5:7b", "name": "qwen2.5:7b", "input": ["text"],
+            "id": "llama3.3:latest", "name": "llama3.3:latest", "input": ["text"],
             "contextWindow": 32768, "contextTokens": 24576, "maxTokens": 1024,
-            "params": { "keep_alive": "30m", "num_ctx": 32768 },
+            "params": { "keep_alive": "60m", "num_ctx": 32768 },
+            "compat": { "supportsTools": true }
+          },
+          {
+            "id": "qwen2:72b", "name": "qwen2:72b", "input": ["text"],
+            "contextWindow": 32768, "contextTokens": 24576, "maxTokens": 1024,
+            "params": { "keep_alive": "60m", "num_ctx": 32768 },
             "compat": { "supportsTools": true }
           }
         ]

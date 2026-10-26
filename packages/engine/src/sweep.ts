@@ -36,6 +36,7 @@ export interface SweepReport {
   insights_found: number;
   insights_published: number;
   pinned: number;
+  retired: number;
   narrated_via: Record<string, number>;
 }
 
@@ -69,6 +70,35 @@ function ensureBoard(store: GraphStore, kind: string, label: string, premise: st
   return id;
 }
 
+/**
+ * Un-publish standing claims that no longer pass current validity rules.
+ *
+ * Tightening a detector has to apply retroactively: a degenerate correlation
+ * pinned under the old rules is just as wrong now, and leaving it in the
+ * Weave would mean the story quietly contradicts the engine that produced it.
+ */
+function retireInvalid(store: GraphStore, emit: (e: string, d: unknown) => void): number {
+  let retired = 0;
+  for (const n of store.allNodes()) {
+    if (n.kind !== "output_artifact" || !n.weave.is_pinned || !n.payload.inline_content) continue;
+    let ins: Insight;
+    try { ins = JSON.parse(n.payload.inline_content) as Insight; } catch { continue; }
+
+    const degenerate =
+      ins.detector === "cross_correlation" &&
+      (Math.abs(ins.statistic.value) > 0.995 || ins.statistic.n < 20);
+    if (!degenerate) continue;
+
+    n.weave.is_pinned = false;
+    n.weave.sequence_index = null;
+    n.execution.status = "stale";
+    store.upsertNode(n);
+    emit("node:update", n);
+    retired++;
+  }
+  return retired;
+}
+
 export async function runSweep(
   store: GraphStore,
   emit: (event: string, data: unknown) => void = () => {},
@@ -80,10 +110,14 @@ export async function runSweep(
   const report: SweepReport = {
     sweep_id: sweepId, started_at: now, duration_ms: 0,
     sources_ok: 0, sources_failed: [], observations: 0,
-    insights_found: 0, insights_published: 0, pinned: 0, narrated_via: {},
+    insights_found: 0, insights_published: 0, pinned: 0, retired: 0, narrated_via: {},
   };
 
   emit("sweep:start", { sweep_id: sweepId, sources: SOURCES.length });
+
+  report.retired = retireInvalid(store, emit);
+  const retired = report.retired;
+  if (retired) console.log(`[sweep] retired ${retired} claim(s) that no longer pass validity rules`);
 
   // ---- 1. poll every source in parallel; one failure never stops a sweep ----
   const results = await Promise.all(SOURCES.map((s) => pollSource(s, now)));
@@ -190,11 +224,11 @@ export async function runSweep(
   // ---- 5. frame every publishable insight; only the top few cost tokens ----
   // Local framing is free and instant, so the Weave is never truncated to the
   // agent budget — the budget only decides which claims get an agent's read.
-  const narrations = new Map<string, string>();
+  const narrations = new Map<string, { text: string; via: string }>();
   const publishable = candidates.filter((c) => c.insight.score >= PIN_SCORE);
   for (const [i, c] of publishable.entries()) {
     const res = await narrate(c.insight, i < NARRATE_BUDGET);
-    narrations.set(c.insight.id, res.text);
+    narrations.set(c.insight.id, { text: res.text, via: res.via });
     report.narrated_via[res.via] = (report.narrated_via[res.via] ?? 0) + 1;
     const stepRec = narrationStep(c.spineId, 90 + i, c.insight, res);
     store.addSpineStep(stepRec);
@@ -222,7 +256,7 @@ export async function runSweep(
         sequence_index: shouldPin ? pinIndex++ : null,
         section_group: insight.detector,
         layout_variant: insight.detector === "cross_correlation" ? "side_by_side" : "full_bleed",
-        narrative_annotation: narrations.get(insight.id),
+        narrative_annotation: narrations.get(insight.id)?.text,
       },
       execution: {
         status: "resolved",
@@ -239,6 +273,9 @@ export async function runSweep(
           statistic: insight.statistic.name,
           p_value: insight.statistic.p_value.toExponential(2),
           n: String(insight.statistic.n),
+          // Who wrote the framing, so the UI can report it per beat rather
+          // than only for the most recent sweep.
+          framed_by: narrations.get(insight.id)?.via ?? "none",
         },
       },
       created_at: now,

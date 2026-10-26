@@ -200,7 +200,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 
 .stat-strip {
-  display: flex; gap: 20px; flex-wrap: wrap;
+  display: flex; gap: 20px; flex-wrap: wrap; align-items: center;
   margin-bottom: 14px; padding: 11px 14px;
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--loom-elevated) 80%, transparent);
@@ -357,3 +357,18 @@ input, textarea { font: inherit; color: inherit; }
 .kv dd { margin: 0; font-family: var(--font-mono); }
 
 .scrim { padding: 40px; text-align: center; color: var(--loom-muted); }
+
+/* ---- micro-charts ---- */
+
+.micro { display: block; overflow: visible; }
+
+.artifact-top { display: flex; align-items: flex-start; gap: 8px; }
+.artifact-top .artifact-title { flex: 1; min-width: 0; }
+.artifact-micro { flex-shrink: 0; opacity: 0.9; }
+.artifact:hover .artifact-micro { opacity: 1; }
+
+.board-spark { flex-shrink: 0; opacity: 0.75; }
+.board:hover .board-spark { opacity: 1; }
+
+.stat-strip .spacer { flex: 1; }
+.stat-micro { flex-shrink: 0; align-self: center; }

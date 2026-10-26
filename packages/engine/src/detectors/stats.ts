@@ -231,3 +231,46 @@ export function hhi(values: number[]): number {
  * *relative to chance*, not just "above 0.4".
  */
 export const uniformGiniNull = (n: number) => (n < 2 ? 0 : 1 / 3 - 1 / (3 * n));
+
+
+/**
+ * Whether a series carries enough variation to be worth testing.
+ *
+ * Several feeds return a fixed page size, so a metric like "stories on the
+ * front page" is 30 every single sweep. Correlating two such series yields
+ * r = ±1.000 at p < 1e-11 — a perfect, perfectly meaningless result, because
+ * Pearson on two-valued data is determined by the two values alone. Requiring
+ * real spread rejects that class of claim before it is ever made.
+ */
+export function isInformative(xs: number[], minDistinct = 6): boolean {
+  if (xs.length < minDistinct) return false;
+  const counts = new Map<number, number>();
+  for (const x of xs) counts.set(x, (counts.get(x) ?? 0) + 1);
+  if (counts.size < minDistinct) return false;
+  // A single repeated value must not dominate the series.
+  return Math.max(...counts.values()) / xs.length <= 0.5;
+}
+
+
+/**
+ * Benjamini-Hochberg false-discovery-rate control.
+ *
+ * The correlation scan tests every pair of scalar series across sources —
+ * on the order of 200 tests per sweep. At an uncorrected p < 0.01 you expect
+ * ~2 "significant" results from pure noise every single time, which is how a
+ * monitor ends up reporting that earthquakes track Hacker News points. BH
+ * controls the expected share of false claims among those published, and is
+ * less brutal than Bonferroni on genuinely correlated families.
+ *
+ * Returns the indices that survive at the given FDR.
+ */
+export function benjaminiHochberg(pValues: number[], q = 0.01): number[] {
+  const m = pValues.length;
+  if (!m) return [];
+  const order = pValues.map((p, i) => ({ p, i })).sort((a, b) => a.p - b.p);
+  let cutoff = -1;
+  for (let k = 0; k < m; k++) {
+    if (order[k].p <= ((k + 1) / m) * q) cutoff = k;
+  }
+  return cutoff < 0 ? [] : order.slice(0, cutoff + 1).map((o) => o.i);
+}

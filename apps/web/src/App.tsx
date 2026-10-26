@@ -17,6 +17,7 @@ export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [beats, setBeats] = useState<Beat[]>([]);
   const [gaps, setGaps] = useState<string[]>([]);
+  const [agentFramed, setAgentFramed] = useState(0);
   const [boards, setBoards] = useState<BoardView[]>([]);
   const [persona, setPersona] = useState<Persona | null>(null);
   const [presets, setPresets] = useState<{ label: string; goals: string }[]>([]);
@@ -30,7 +31,7 @@ export default function App() {
   const refresh = useCallback(async () => {
     try {
       const [s, w, m] = await Promise.all([api.getStatus(), api.getWeave(), api.getMuse()]);
-      setStatus(s); setBeats(w.beats); setBoards(m.boards); setPersona(w.persona); setGaps(w.gaps ?? []);
+      setStatus(s); setBeats(w.beats); setBoards(m.boards); setPersona(w.persona); setGaps(w.gaps ?? []); setAgentFramed(w.framed_by_agent ?? 0);
       setError(null);
       loadedOnce.current = true;
     } catch (e) {
@@ -73,6 +74,7 @@ export default function App() {
       setPersona(r.persona);
       setBeats(r.beats);
       setGaps(r.gaps ?? []);
+      setAgentFramed(r.framed_by_agent ?? 0);
       setLens("weave");
     } finally { setBusy(false); }
   };
@@ -99,7 +101,8 @@ export default function App() {
 
   const rep = status?.last_report;
   const oc = status?.openclaw;
-  const agentFramings = rep?.narrated_via?.openclaw ?? 0;
+  // Count framings standing in the weave, not just the last sweep's delta.
+  const agentFramings = agentFramed;
 
   return (
     <div className="app">

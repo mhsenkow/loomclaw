@@ -6,13 +6,13 @@ const j = async <T>(url: string, init?: RequestInit): Promise<T> => {
 
 export const getStatus = () => j<import("./types").Status>("/api/status");
 export const getWeave = () =>
-  j<{ persona: import("./types").Persona; beats: import("./types").Beat[]; gaps: string[] }>("/api/weave");
+  j<{ persona: import("./types").Persona; beats: import("./types").Beat[]; gaps: string[]; framed_by_agent: number }>("/api/weave");
 export const getMuse = () => j<{ boards: import("./types").BoardView[] }>("/api/muse");
 export const getPersonas = () =>
   j<{ presets: { label: string; goals: string }[]; topics: string[]; active: import("./types").Persona }>("/api/personas");
 
 export const setPersona = (label: string, goals: string) =>
-  j<{ persona: import("./types").Persona; beats: import("./types").Beat[]; gaps: string[] }>("/api/persona", {
+  j<{ persona: import("./types").Persona; beats: import("./types").Beat[]; gaps: string[]; framed_by_agent: number }>("/api/persona", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ label, goals }),

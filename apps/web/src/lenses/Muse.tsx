@@ -5,6 +5,7 @@
 // Board, each Board anchored to its Execution Spine.
 // =================================================================
 
+import { Micro, Sparkline } from "../components/Micro.tsx";
 import type { BoardView, GraphNode, Insight, SpineStep } from "../lib/types.ts";
 
 const STATUS_DOT: Record<GraphNode["execution"]["status"], string> = {
@@ -45,13 +46,20 @@ function Artifact({
 }) {
   return (
     <div className={node.weave.is_pinned ? "artifact pinned" : "artifact"}>
-      <button
-        className="artifact-title"
-        style={{ textAlign: "left", padding: 0 }}
-        onClick={() => insight && onOpen(insight, node)}
-      >
-        {node.title}
-      </button>
+      <div className="artifact-top">
+        <button
+          className="artifact-title"
+          style={{ textAlign: "left", padding: 0 }}
+          onClick={() => insight && onOpen(insight, node)}
+        >
+          {node.title}
+        </button>
+        {insight && (
+          <span className="artifact-micro" title="Shape of the evidence behind this claim">
+            <Micro insight={insight} width={74} height={26} />
+          </span>
+        )}
+      </div>
       <div className="artifact-foot">
         <span className="artifact-stat">
           {insight
@@ -90,7 +98,7 @@ export function Muse({
   return (
     <div className="muse">
       <div className="canvas" style={{ width, height }}>
-        {laid.map(({ board, children, spine, topics, h }) => (
+        {laid.map(({ board, children, spine, topics, series, h }) => (
           <section
             key={board.id}
             id={`board-${board.id}`}
@@ -107,6 +115,11 @@ export function Muse({
             <header className="board-head">
               <span className={STATUS_DOT[board.execution.status]} />
               <span className="board-title">{board.title}</span>
+              {series && series.values.length > 1 && (
+                <span className="board-spark" title={`${series.metric} across the last ${series.values.length} sweeps`}>
+                  <Sparkline values={series.values} width={56} height={16} />
+                </span>
+              )}
               <span className="board-weight" title="Context weight — tokens this board's inputs would cost">
                 {board.execution.token_weight > 999
                   ? `${(board.execution.token_weight / 1000).toFixed(1)}k`

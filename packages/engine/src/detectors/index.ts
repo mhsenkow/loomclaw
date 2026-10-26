@@ -13,14 +13,22 @@ import type { DetectorKind, Insight } from "@loomclaw/core-schema";
 import type { GraphStore, Observation } from "../graph.ts";
 import { SOURCE_BY_KIND, type SourceDef } from "../sources/registry.ts";
 import {
-  correlationP, gini, linearTrend, mean, median, pFromChiSquare, pFromZ,
-  pearson, scaledRobustZ, sd, uniformGiniNull,
+  benjaminiHochberg, correlationP, gini, isInformative, linearTrend, mean, median,
+  pFromChiSquare, pFromZ, pearson, scaledRobustZ, sd, uniformGiniNull,
 } from "./stats.ts";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /** Minimum history before a longitudinal detector is allowed to speak. */
 const MIN_HISTORY = 8;
+/**
+ * Correlation needs far more points than a level shift. At n≈13 a spurious
+ * |r| > 0.8 between unrelated series is common, and no amount of p-value
+ * decoration fixes an underpowered test.
+ */
+const MIN_CORR_N = 20;
+/** Expected share of false claims tolerated among published correlations. */
+const CORR_FDR = 0.01;
 /** Claims weaker than this are never published, however novel. */
 const MAX_P = 0.01;
 /**
@@ -209,6 +217,7 @@ function trends(store: GraphStore, def: SourceDef, current: Observation[], now: 
     const hist = store.history(def.kind, o.metric, "", 120);
     if (hist.length < 12) continue;
     const ys = hist.map((h) => h.value);
+    if (!isInformative(ys)) continue;
     const fit = linearTrend(ys);
     // |t| > 4 on >=12 points is a trend you would rarely get from noise.
     if (!Number.isFinite(fit.t) || Math.abs(fit.t) < 4 || fit.r2 < 0.5) continue;
@@ -325,23 +334,36 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
   for (const def of SOURCE_BY_KIND.values()) {
     for (const metric of Object.keys(def.units ?? {})) {
       const h = store.history(def.kind, metric, "", 200);
-      if (h.length >= 12 && sd(h.map((x) => x.value)) > 0) {
+      // A flat or two-valued series is an API constant, not a measurement.
+      if (h.length >= 12 && sd(h.map((x) => x.value)) > 0 && isInformative(h.map((x) => x.value))) {
         series.push({ kind: def.kind, metric, values: h.map((x) => x.value), stamps: h.map((x) => x.observed_at) });
       }
     }
   }
 
+  // Every pair is tested first, then the whole family is corrected together.
+  // Filtering pair-by-pair on a raw p-value is precisely the mistake that
+  // manufactures cross-domain coincidences.
+  const tested: { a: typeof series[number]; b: typeof series[number]; r: number; n: number; p: number }[] = [];
   for (let i = 0; i < series.length; i++) {
     for (let j = i + 1; j < series.length; j++) {
       const a = series[i], b = series[j];
       if (a.kind === b.kind) continue; // within-source correlation is mostly plumbing
       const n = Math.min(a.values.length, b.values.length);
-      if (n < 12) continue;
+      if (n < MIN_CORR_N) continue;
       const { r } = pearson(a.values.slice(-n), b.values.slice(-n));
-      if (Math.abs(r) < 0.8) continue;
-      const p = correlationP(r, n);
-      if (p > MAX_P) continue;
+      // |r| this close to 1 across independent societal feeds is numerical
+      // degeneracy, not a discovery.
+      if (Math.abs(r) > 0.995) continue;
+      tested.push({ a, b, r, n, p: correlationP(r, n) });
+    }
+  }
 
+  const survivors = new Set(benjaminiHochberg(tested.map((t) => t.p), CORR_FDR));
+  for (const [idx, { a, b, r, n, p }] of tested.entries()) {
+    if (!survivors.has(idx)) continue;
+    if (Math.abs(r) < 0.8) continue;
+    {
       const da = SOURCE_BY_KIND.get(a.kind), db = SOURCE_BY_KIND.get(b.kind);
       out.push({
         id: `ins_${uid()}`,
@@ -349,8 +371,12 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
         source_kind: `${a.kind}+${b.kind}`,
         headline:
           `${da?.label ?? a.kind} ${phrase(a.metric)} and ${db?.label ?? b.kind} ${phrase(b.metric)} ` +
-          `move together: r=${r.toFixed(2)} over ${n} aligned sweeps`,
-        statistic: { name: "Pearson r (Fisher z)", value: r, effect_size: Math.abs(r) * 8, p_value: p, n },
+          `move together: r=${r.toFixed(2)} over ${n} aligned sweeps ` +
+          `(survives FDR correction across ${tested.length} pairs tested)`,
+        statistic: {
+          name: `Pearson r (Fisher z, BH-FDR ${CORR_FDR} over ${tested.length} tests)`,
+          value: r, effect_size: Math.abs(r) * 8, p_value: p, n,
+        },
         evidence: {
           points: a.values.slice(-n).map((v, k) => ({ label: a.stamps.slice(-n)[k], value: v })),
           baseline: b.values.slice(-n).map((v, k) => ({ label: b.stamps.slice(-n)[k], value: v })),
@@ -390,7 +416,10 @@ export function scoreInsight(ins: Insight, timesSeen: number): number {
   const effect = Math.min(1, ins.statistic.effect_size / 8);
   const confidence = Math.min(1, 1 - ins.statistic.p_value);
   const sample = Math.min(1, Math.log10(1 + ins.statistic.n) / Math.log10(51));
-  const novelty = 1 / (1 + timesSeen);
+  // Floored: a condition that is still true after fifty sweeps is less
+  // newsworthy than a new one, but it is not nothing. Without a floor the
+  // feed eventually publishes nothing at all, which is worse than repeating.
+  const novelty = Math.max(0.25, 1 / (1 + timesSeen));
   // Longitudinal claims say more about the world than a single snapshot does.
   const depth: Record<DetectorKind, number> = {
     zscore_outlier: 0.85,

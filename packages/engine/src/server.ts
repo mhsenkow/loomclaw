@@ -104,6 +104,21 @@ function collapseRepeats(children: { node: UnifiedGraphNode; insight: Insight | 
   return [...byClaim.values()];
 }
 
+/**
+ * The board's headline series: its first scalar metric, across sweeps.
+ * A board header that shows the shape of its own history lets you read the
+ * situation off the canvas instead of taking a sentence's word for it.
+ */
+function boardSeries(kind: string): { metric: string; values: number[] } | null {
+  const def = SOURCES.find((s) => s.kind === kind);
+  if (!def) return null;
+  for (const metric of Object.keys(def.units ?? {})) {
+    const h = store.history(kind, metric, "", 60);
+    if (h.length >= 2) return { metric, values: h.map((x) => x.value) };
+  }
+  return null;
+}
+
 /** The Muse lens: every board with its children and spine. */
 function museProjection() {
   const nodes = store.allNodes();
@@ -111,6 +126,7 @@ function museProjection() {
   return boards.map((b) => ({
     board: b,
     topics: SOURCE_TOPICS[b.id.replace(/^board_/, "")] ?? {},
+    series: boardSeries(b.id.replace(/^board_/, "")),
     children: collapseRepeats(
       nodes
         .filter((n) => n.parent_board_id === b.id)
@@ -182,7 +198,10 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/api/weave") {
     const beats = weaveProjection();
-    return json(res, { persona, beats, gaps: weaveGaps(beats) });
+    return json(res, {
+      persona, beats, gaps: weaveGaps(beats),
+      framed_by_agent: beats.filter((b) => b.node.payload.schema_summary?.framed_by === "openclaw").length,
+    });
   }
   if (url.pathname === "/api/muse") return json(res, { boards: museProjection(), edges: store.allEdges() });
   if (url.pathname === "/api/personas") return json(res, { presets: PRESET_PERSONAS, topics: TOPICS, active: persona });
@@ -192,7 +211,10 @@ const server = createServer(async (req, res) => {
     persona = makePersona(String(label ?? "Custom"), String(goals ?? ""));
     emit("persona:change", persona);
     const beats = weaveProjection();
-    return json(res, { persona, beats, gaps: weaveGaps(beats) });
+    return json(res, {
+      persona, beats, gaps: weaveGaps(beats),
+      framed_by_agent: beats.filter((b) => b.node.payload.schema_summary?.framed_by === "openclaw").length,
+    });
   }
 
   if (url.pathname === "/api/sweep" && req.method === "POST") {

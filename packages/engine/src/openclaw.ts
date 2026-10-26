@@ -20,13 +20,15 @@ export interface NarrationResult {
 }
 
 import { existsSync } from "node:fs";
+import { rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BIN = process.env.OPENCLAW_BIN ?? "openclaw";
 const ENABLED = process.env.LOOMCLAW_OPENCLAW !== "0";
-const TIMEOUT_S = Number(process.env.LOOMCLAW_OPENCLAW_TIMEOUT ?? 420);
+const TIMEOUT_S = Number(process.env.LOOMCLAW_OPENCLAW_TIMEOUT ?? 180);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -44,7 +46,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  */
 const CONFIG = process.env.LOOMCLAW_OPENCLAW_CONFIG ?? resolvePath(HERE, "..", "openclaw-narrator.json");
 const STATE_DIR = process.env.LOOMCLAW_OPENCLAW_STATE ?? join(homedir(), ".loomclaw", "openclaw-state");
-const MODEL = process.env.LOOMCLAW_OPENCLAW_MODEL ?? "ollama/llama3.3:latest";
+const MODEL = process.env.LOOMCLAW_OPENCLAW_MODEL ?? "ollama/qwen2.5:7b";
 const OLLAMA = process.env.OLLAMA_HOST ?? "http://localhost:11434";
 
 let availability: { ok: boolean; detail: string } | null = null;
@@ -109,7 +111,10 @@ function deterministicFraming(ins: Insight): string {
   return `${byDetector[ins.detector] ?? ""} Statistic: ${s.name} = ${s.value.toFixed(3)}, p ≈ ${s.p_value.toExponential(1)}, n = ${s.n}.`;
 }
 
-const PROMPT = (ins: Insight) => `You are reviewing a statistical finding from a live societal-data monitor. The number has ALREADY been computed and verified. Do not recompute it, do not invent new figures, and do not add any statistic that is not listed below.
+// "You have no tools" is load-bearing: handed a tool surface, a small local
+// model will try to shell out to satisfy even a trivial request. Saying so
+// plainly removes four wasted tool calls per run and fixes the output.
+const PROMPT = (ins: Insight) => `You are reviewing a statistical finding from a live societal-data monitor. The number has ALREADY been computed and verified. Do not recompute it, do not invent new figures, and do not add any statistic that is not listed below. You have no tools and need none; answer from the text alone.
 
 FINDING
   Source:      ${ins.source_kind}
@@ -121,10 +126,7 @@ FINDING
   n:           ${ins.statistic.n}
   Top values:  ${ins.evidence.points.slice(0, 6).map((p) => `${p.label}=${p.value}`).join(", ")}
 
-Write 2-3 sentences, plain prose, no headings or bullets:
-1. What this would mean about the world if it is real.
-2. The single most likely boring explanation (measurement artifact, reporting lag, feed change) that would make it NOT real.
-Be concrete and skeptical. Do not pad. Do not restate the numbers.`;
+Write 2-3 sentences of flowing prose. No headings, no bullets, no numbered list. Cover, in order: what this would mean about the world if it is real, then the single most likely boring explanation (measurement artifact, reporting lag, feed change) that would make it NOT real. Be concrete and skeptical. Do not pad. Do not restate the numbers.`;
 
 /**
  * `useAgent` is the token circuit-breaker: false returns the local framing
@@ -140,20 +142,30 @@ export async function narrate(ins: Insight, useAgent = true): Promise<NarrationR
     return { text: deterministicFraming(ins), via: "deterministic", error: status.detail, duration_ms: Date.now() - t0 };
   }
 
-  const r = await run(
-    [
-      BIN, "agent", "exec", "--json",
-      "--config", CONFIG,
-      "--model", MODEL,
-      // Narration needs no tools; the lean surface keeps the system prompt from
-      // eating the context window on a local model.
-      "--local-model-lean",
-      "--timeout", String(TIMEOUT_S),
-      PROMPT(ins),
-    ],
-    (TIMEOUT_S + 20) * 1000,
-    { OPENCLAW_STATE_DIR: STATE_DIR },
-  );
+  // Prompt goes via a file, not argv: it is multi-line and interpolates
+  // arbitrary labels straight from public feeds.
+  const promptFile = join(tmpdir(), `loomclaw-${ins.id}.txt`);
+  await writeFile(promptFile, PROMPT(ins), "utf8");
+
+  let r: { code: number; stdout: string; stderr: string };
+  try {
+    r = await run(
+      [
+        BIN, "agent", "exec", "--json",
+        "--config", CONFIG,
+        "--model", MODEL,
+        // Narration needs no tools; the lean surface keeps the system prompt
+        // from eating the context window on a local model.
+        "--local-model-lean",
+        "--timeout", String(TIMEOUT_S),
+        "--message-file", promptFile,
+      ],
+      (TIMEOUT_S + 20) * 1000,
+      { OPENCLAW_STATE_DIR: STATE_DIR },
+    );
+  } finally {
+    await rm(promptFile, { force: true }).catch(() => {});
+  }
 
   try {
     // The envelope is the last JSON object on stdout; config warnings precede it.

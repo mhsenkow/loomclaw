@@ -40,6 +40,8 @@ export interface Beat { node: GraphNode; insight: Insight; relevance: number; ra
 export interface BoardView {
   board: GraphNode;
   topics: Record<string, number>;
+  /** The board's first scalar metric across sweeps, for the header sparkline. */
+  series: { metric: string; values: number[] } | null;
   children: { node: GraphNode; insight: Insight | null; repeats?: number }[];
   spine: SpineStep[];
 }
