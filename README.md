@@ -84,9 +84,20 @@ These exist because the first working version produced all three of these:
   uncorrected p < 0.01 you expect false positives *every time*, which is how a monitor
   reports that earthquakes track Hacker News points. Benjamini-Hochberg at q = 0.01
   across the whole family, plus n ≥ 20, removed all of them.
-- **Retroactive retirement.** Tightening a detector re-validates what is already pinned.
-  A claim that would not pass today is unpinned, so the story never contradicts the
-  engine that produced it.
+- **Base-rate guards.** "American cuisine has the most critical violations" is a fact
+  about how many American restaurants New York has, not about food safety. Raw counts
+  governed by population size are marked structural; the rate forms
+  (`critical_rate_by_cuisine`, `mean_score_by_cuisine`) are what get tested.
+- **Correlation on first differences.** Correlating two autocorrelated series *in levels*
+  is the spurious-regression trap — any two series drifting the same way score a high r.
+  Differencing asks the only useful question: when one moves, does the other move with it?
+- **Observations are deduplicated.** Sweeps run far more often than most sources publish
+  (NYC Open Data is daily). Recording an identical payload every sweep would manufacture
+  history — a test would see n=50 where the true independent sample is n=1. Unchanged
+  payloads are not recorded, so `n` means what it says.
+- **Retroactive retirement.** Tightening a detector re-validates what is already pinned,
+  including records written before a schema change. A claim that would not pass today is
+  unpinned, so the story never contradicts the engine that produced it.
 - **Honest gaps.** If nothing cleared significance for a topic you asked about, the
   Weave says so rather than quietly substituting an adjacent topic.
 
@@ -190,8 +201,16 @@ apps/web               Vite + React: Weave lens, Workshop lens, drawer
 
 ## Current sources
 
-`usgs` `nws` `aq` `nyc311` `pageviews` `crypto` `faa_delays` `fda_recalls`
-`vehicle_recalls` `lobbying` `arxiv` `internet_outages` `hn`
+**Earth / environment** `usgs` `nws` `aq`
+**Cities** `nyc311` `nyc_inspections`
+**US institutions** `faa_delays` `fda_recalls` `vehicle_recalls` `lobbying`
+**World** `openfood` `internet_outages` `crypto`
+**Web / science** `pageviews` `arxiv` `hn`
+
+A metric is only included if it measures the world rather than the query. `hn.story_count`
+is absent because the front page is always exactly 30 items; `nyc_inspections` reports
+rates rather than counts because the feed is capped at 1000 rows. With a fixed
+denominator, only rates carry information.
 
 Adding one is a single entry in `packages/engine/src/sources/registry.ts` — any of
 Loom's other ~50 feeds can be mounted the same way.
@@ -203,6 +222,8 @@ Loom's other ~50 feeds can be mounted the same way.
   underpowered results.
 - Topic routing is a keyword lexicon, not a classifier; an unmatched goal falls back
   to pure statistical strength and says so.
+- Slow feeds accumulate history slowly *by design* — with daily sources, a trend needs
+  real days. The alternative is a p-value computed from duplicate rows.
 - Correlation over sweeps is not causal. FDR control bounds the share of false claims
   among those published; it does not make a surviving one meaningful.
 - Threads between Boards exist in the schema and store, but the canvas does not draw

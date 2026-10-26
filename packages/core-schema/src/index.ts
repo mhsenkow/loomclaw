@@ -122,6 +122,8 @@ export interface Insight {
   id: string;
   detector: DetectorKind;
   source_kind: string;
+  /** The metric the claim is about, so validity can be re-checked later. */
+  metric: string;
   /** One-sentence claim, generated deterministically from the statistic. */
   headline: string;
   /** The measured quantity — the thing that makes this analytical, not vibes. */
@@ -138,7 +140,12 @@ export interface Insight {
   evidence: InsightEvidence;
   /** Vega-Lite spec rendering the evidence. */
   vega_spec: Record<string, unknown>;
-  /** 0–1 composite of effect size, sample size and novelty. Drives auto-pinning. */
+  /**
+   * 0–1 statistical quality alone: effect size, confidence, sample adequacy and
+   * detector depth. Decides whether a claim is worth publishing at all.
+   */
+  merit: number;
+  /** `merit` discounted by novelty. Decides ordering, not publication. */
   score: number;
   detected_at: string;
 }

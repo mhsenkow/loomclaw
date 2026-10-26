@@ -27,6 +27,8 @@ export const TOPICS: Topic[] = [
 export const SOURCE_TOPICS: Record<string, Partial<Record<Topic, number>>> = {
   lobbying:         { politics: 1.0, money: 0.9 },
   fda_recalls:      { food: 1.0, health: 0.9, safety: 0.8 },
+  nyc_inspections:  { food: 1.0, safety: 0.95, health: 0.75, cities: 0.8 },
+  openfood:         { food: 1.0, health: 0.85 },
   vehicle_recalls:  { safety: 1.0, transport: 0.9 },
   nyc311:           { cities: 1.0, infrastructure: 0.7, safety: 0.5, transport: 0.4 },
   faa_delays:       { transport: 1.0, infrastructure: 0.7 },

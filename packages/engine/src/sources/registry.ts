@@ -74,6 +74,25 @@ function sumBy(pairs: [string | null | undefined, number | null][], cap = 40): M
   return new Map([...m].sort((a, b) => b[1] - a[1]).slice(0, cap));
 }
 
+/** Average per key, for metrics where a sum would just track row count. */
+function meanBy(pairs: [string | null | undefined, number | null][], cap = 40, minN = 3): Map<string, number> {
+  const acc = new Map<string, { sum: number; n: number }>();
+  for (const [k, v] of pairs) {
+    if (!k || v === null) continue;
+    const key = String(k).slice(0, 80);
+    const a = acc.get(key) ?? { sum: 0, n: 0 };
+    a.sum += v; a.n++; acc.set(key, a);
+  }
+  return new Map(
+    [...acc]
+      // A "mean" over one or two rows is noise wearing a statistic's clothes.
+      .filter(([, a]) => a.n >= minN)
+      .map(([k, a]) => [k, a.sum / a.n] as [string, number])
+      .sort((x, y) => y[1] - x[1])
+      .slice(0, cap),
+  );
+}
+
 const obs = (kind: string, metric: string, now: string) =>
   (dim: string, value: number): Observation => ({ source_kind: kind, metric, dim, value, observed_at: now });
 
@@ -87,6 +106,13 @@ const scalar = (kind: string, metric: string, now: string, value: number): Obser
 });
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+
+const median = (xs: number[]) => {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const i = s.length >> 1;
+  return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2;
+};
 
 // ---- the registry ----
 
@@ -198,8 +224,11 @@ export const SOURCES: SourceDef[] = [
     group: "world",
     premise: "A fully public, 24/7 risk-appetite gauge — useful mostly as a correlate for other signals.",
     attribution: "CoinGecko",
-    units: { price_usd: "USD", pct_change_24h: "%", market_cap: "USD" },
-    // BTC is permanently the largest by price and cap; only pct_change moves.
+    units: {
+      price_usd: "USD", pct_change_24h: "%", market_cap: "USD",
+      btc_dominance: "%", share_advancing: "%", median_pct_change_24h: "%", dispersion_pct_24h: "pp",
+    },
+    // BTC is permanently the largest by price and cap; only movement is news.
     structural: ["price_usd", "market_cap"],
     extract: (p, now) => {
       const coins = Array.isArray(p) ? (p as Record<string, unknown>[]) : [];
@@ -216,6 +245,23 @@ export const SOURCES: SourceDef[] = [
         if (price !== null) out.push(mkP(sym, price));
         if (pct !== null) out.push(mkC(sym, pct));
         if (cap !== null) out.push(mkM(sym, cap));
+      }
+
+      // Market-breadth scalars. Unlike a price ranking these genuinely move,
+      // and they say something about the market rather than about Bitcoin.
+      const caps = coins.map((c) => num(c.market_cap)).filter((v): v is number => v !== null);
+      const pcts = coins.map((c) => num(c.price_change_percentage_24h)).filter((v): v is number => v !== null);
+      const btc = coins.find((c) => String(c.symbol ?? "").toLowerCase() === "btc");
+      const btcCap = num(btc?.market_cap);
+      const totalCap = caps.reduce((a, b) => a + b, 0);
+      if (btcCap !== null && totalCap > 0) out.push(scalar("crypto", "btc_dominance", now, (btcCap / totalCap) * 100));
+      if (pcts.length) {
+        out.push(scalar("crypto", "share_advancing", now, (pcts.filter((v) => v > 0).length / pcts.length) * 100));
+        out.push(scalar("crypto", "median_pct_change_24h", now, median(pcts)));
+        // Spread of daily moves: wide means the market is picking winners,
+        // narrow means it is moving as one block.
+        const m = mean(pcts);
+        out.push(scalar("crypto", "dispersion_pct_24h", now, Math.sqrt(mean(pcts.map((v) => (v - m) ** 2)))));
       }
       return out;
     },
@@ -342,24 +388,120 @@ export const SOURCES: SourceDef[] = [
     },
   },
   {
+    kind: "nyc_inspections",
+    label: "NYC restaurant inspections",
+    group: "cities",
+    premise: "Every health-code inspection in a city of 25,000 restaurants — the most granular food-safety record that exists in public.",
+    attribution: "NYC Department of Health / NYC Open Data",
+    // No `inspection_count`: the feed is capped at 1000 rows, so a count would
+    // be constant. With a fixed denominator only rates carry information.
+    units: {
+      critical_share: "%", mean_score: "points",
+      count_by_cuisine: "inspections", count_by_borough: "inspections",
+      critical_by_cuisine: "violations", mean_score_by_cuisine: "points",
+      critical_rate_by_cuisine: "%", count_by_violation: "violations",
+    },
+    // Every raw count here is governed by how many restaurants of that kind
+    // exist: American leads on inspections AND on critical violations simply
+    // because it is the most common cuisine in New York. That is a fact about
+    // the city's restaurant population, not about food safety. Only the rate
+    // metrics — critical_rate_by_cuisine, mean_score_by_cuisine — divide the
+    // base rate out and say something about risk.
+    structural: ["count_by_cuisine", "count_by_borough", "critical_by_cuisine"],
+    extract: (p, now) => {
+      if (!isTabular(p)) return [];
+      const cuisine = col(p, "cuisine"), borough = col(p, "borough");
+      const score = col(p, "score"), critical = col(p, "critical"), violation = col(p, "violation");
+      const rows = p.rows;
+      if (!rows.length) return [];
+
+      const isCritical = (r: Row) => String(critical(r) ?? "").toLowerCase().startsWith("critical");
+      const crit = rows.filter(isCritical);
+      const scores = rows.map((r) => num(score(r))).filter((v): v is number => v !== null);
+
+      return [
+        scalar("nyc_inspections", "critical_share", now, (crit.length / rows.length) * 100),
+        ...(scores.length ? [scalar("nyc_inspections", "mean_score", now, mean(scores))] : []),
+        ...fromMap("nyc_inspections", "count_by_cuisine", now, tally(rows.map((r) => String(cuisine(r) ?? "")))),
+        ...fromMap("nyc_inspections", "count_by_borough", now, tally(rows.map((r) => String(borough(r) ?? "")))),
+        ...fromMap("nyc_inspections", "critical_by_cuisine", now, tally(crit.map((r) => String(cuisine(r) ?? "")))),
+        // Higher inspection score = worse. A mean needs several rows to mean anything.
+        ...fromMap("nyc_inspections", "mean_score_by_cuisine", now,
+          meanBy(rows.map((r) => [String(cuisine(r) ?? ""), num(score(r))]), 40, 5)),
+        // Violation text is a long sentence; its opening clause is the useful part.
+        // Share of a cuisine's own inspections that found a critical violation,
+        // which is the base-rate-free version of the count above.
+        ...fromMap("nyc_inspections", "critical_rate_by_cuisine", now,
+          meanBy(rows.map((r) => [String(cuisine(r) ?? ""), isCritical(r) ? 100 : 0]), 40, 8)),
+        ...fromMap("nyc_inspections", "count_by_violation", now,
+          tally(rows.map((r) => String(violation(r) ?? "").split(/[,;.]/)[0].slice(0, 60)))),
+      ];
+    },
+  },
+  {
+    kind: "openfood",
+    label: "Packaged food composition",
+    group: "world",
+    premise: "Nutrition labels from Open Food Facts — what is actually in the packaged food on shelves, by category and brand.",
+    attribution: "Open Food Facts (ODbL)",
+    // No `product_count` either — same fixed-page reasoning as the inspections feed.
+    units: {
+      poor_nutriscore_share: "%", mean_sugars_100g: "g/100g",
+      count_by_nutriscore: "products", count_by_category: "products",
+      mean_sugars_by_category: "g/100g", mean_energy_by_category: "kcal/100g",
+    },
+    extract: (p, now) => {
+      if (!isTabular(p)) return [];
+      const nutri = col(p, "nutriscore"), cat = col(p, "category");
+      const sugars = col(p, "sugars_100g"), energy = col(p, "energy_kcal_100g");
+      const rows = p.rows;
+      if (!rows.length) return [];
+
+      const grades = rows.map((r) => String(nutri(r) ?? "").toUpperCase()).filter((g) => /^[A-E]$/.test(g));
+      const poor = grades.filter((g) => g === "D" || g === "E").length;
+      const allSugars = rows.map((r) => num(sugars(r))).filter((v): v is number => v !== null);
+
+      return [
+        ...(grades.length ? [scalar("openfood", "poor_nutriscore_share", now, (poor / grades.length) * 100)] : []),
+        ...(allSugars.length ? [scalar("openfood", "mean_sugars_100g", now, mean(allSugars))] : []),
+        ...fromMap("openfood", "count_by_nutriscore", now, tally(grades)),
+        ...fromMap("openfood", "count_by_category", now, tally(rows.map((r) => String(cat(r) ?? "")))),
+        ...fromMap("openfood", "mean_sugars_by_category", now,
+          meanBy(rows.map((r) => [String(cat(r) ?? ""), num(sugars(r))]), 40, 4)),
+        ...fromMap("openfood", "mean_energy_by_category", now,
+          meanBy(rows.map((r) => [String(cat(r) ?? ""), num(energy(r))]), 40, 4)),
+      ];
+    },
+  },
+  {
     kind: "hn",
     label: "Hacker News front page",
     group: "web",
     premise: "What technologists are collectively surfacing — useful as a discourse-attention proxy.",
     attribution: "HN / Algolia",
-    units: { story_count: "stories", mean_points: "points", count_by_domain: "stories" },
+    // `story_count` is deliberately absent: the front page is always exactly 30
+    // items, so it is a property of the API, not a measurement of the world.
+    units: {
+      median_points: "points", mean_comments: "comments", top_story_points: "points",
+      comments_per_point: "ratio", count_by_domain: "stories",
+    },
     extract: (p, now) => {
       const hits = (p as { hits?: Record<string, unknown>[] })?.hits ?? [];
       if (!hits.length) return [];
       const pts = hits.map((h) => num(h.points)).filter((v): v is number => v !== null);
+      const comments = hits.map((h) => num(h.num_comments)).filter((v): v is number => v !== null);
       const domains = hits.map((h) => {
         try { return new URL(String(h.url)).hostname.replace(/^www\./, ""); } catch { return null; }
       });
-      const comments = hits.map((h) => num(h.num_comments)).filter((v): v is number => v !== null);
+      const totalPts = pts.reduce((a, b) => a + b, 0);
+      const totalCom = comments.reduce((a, b) => a + b, 0);
       return [
-        scalar("hn", "story_count", now, hits.length),
-        scalar("hn", "mean_points", now, mean(pts)),
-        scalar("hn", "mean_comments", now, mean(comments)),
+        // Median rather than mean: a single 2000-point story should not define the day.
+        ...(pts.length ? [scalar("hn", "median_points", now, median(pts))] : []),
+        ...(pts.length ? [scalar("hn", "top_story_points", now, Math.max(...pts))] : []),
+        ...(comments.length ? [scalar("hn", "mean_comments", now, mean(comments))] : []),
+        // Argument per unit of approval — rises when the page turns contentious.
+        ...(totalPts > 0 ? [scalar("hn", "comments_per_point", now, totalCom / totalPts)] : []),
         ...fromMap("hn", "count_by_domain", now, tally(domains)),
       ];
     },

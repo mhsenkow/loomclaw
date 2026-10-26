@@ -2,10 +2,12 @@ export interface Insight {
   id: string;
   detector: "zscore_outlier" | "trend_break" | "concentration" | "distribution_shift" | "cross_correlation";
   source_kind: string;
+  metric: string;
   headline: string;
   statistic: { name: string; value: number; effect_size: number; p_value: number; n: number };
   evidence: { points: { label: string; value: number }[]; baseline?: { label: string; value: number }[]; unit?: string };
   vega_spec: Record<string, unknown>;
+  merit: number;
   score: number;
   detected_at: string;
 }

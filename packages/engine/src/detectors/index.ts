@@ -29,6 +29,19 @@ const MIN_HISTORY = 8;
 const MIN_CORR_N = 20;
 /** Expected share of false claims tolerated among published correlations. */
 const CORR_FDR = 0.01;
+
+/**
+ * First differences of a series.
+ *
+ * Correlating two autocorrelated time series in *levels* is the classic
+ * spurious-regression trap: any two series that happen to drift in the same
+ * direction over the window will show a high r with a tiny p-value, which is
+ * how a monitor ends up claiming earthquakes track Hacker News comments.
+ * Differencing asks the only question worth asking — when one moves, does the
+ * other move with it?
+ */
+const diff = (xs: number[]): number[] =>
+  xs.slice(1).map((v, i) => v - xs[i]);
 /** Claims weaker than this are never published, however novel. */
 const MAX_P = 0.01;
 /**
@@ -91,6 +104,7 @@ function crossSectionalOutliers(def: SourceDef, current: Observation[], now: str
       id: `ins_${uid()}`,
       detector: "zscore_outlier",
       source_kind: def.kind,
+      metric,
       headline:
         `${top.dim} stands out in ${phrase(metric)}: ` +
         `${fmt(top.value)}${unit ? " " + unit : ""} against a peer median of ${fmt(med)}` +
@@ -103,6 +117,7 @@ function crossSectionalOutliers(def: SourceDef, current: Observation[], now: str
         unit,
       },
       vega_spec: barSpec(ranked.slice(0, 12).map((o) => ({ label: o.dim, value: o.value })), med, unit, phrase(metric)),
+      merit: 0,
       score: 0,
       detected_at: now,
     });
@@ -146,6 +161,7 @@ function concentration(def: SourceDef, current: Observation[], now: string): Ins
       id: `ins_${uid()}`,
       detector: "concentration",
       source_kind: def.kind,
+      metric,
       headline:
         `${phrase(metric)} is highly concentrated (Gini ${g.toFixed(2)} vs ${nullG.toFixed(2)} expected if even): ` +
         `${ranked.slice(0, 3).map((o) => o.dim).join(", ")} hold ${top3Share.toFixed(0)}% of ${fmt(total)}${unit ? " " + unit : ""} across ${values.length}`,
@@ -155,6 +171,7 @@ function concentration(def: SourceDef, current: Observation[], now: string): Ins
         unit,
       },
       vega_spec: lorenzSpec(values, phrase(metric)),
+      merit: 0,
       score: 0,
       detected_at: now,
     });
@@ -188,6 +205,7 @@ function levelShifts(store: GraphStore, def: SourceDef, current: Observation[], 
       id: `ins_${uid()}`,
       detector: "zscore_outlier",
       source_kind: def.kind,
+      metric: o.metric,
       headline:
         `${def.label}: ${phrase(o.metric)} is ${Math.abs(z).toFixed(1)}σ ${dir} its own baseline — ` +
         `${fmt(o.value)}${unit ? " " + unit : ""} vs a ${prior.length}-sweep median of ${fmt(base)}`,
@@ -198,6 +216,7 @@ function levelShifts(store: GraphStore, def: SourceDef, current: Observation[], 
         unit,
       },
       vega_spec: lineSpec(hist.slice(-60).map((h) => ({ label: h.observed_at, value: h.value })), base, unit, phrase(o.metric)),
+      merit: 0,
       score: 0,
       detected_at: now,
     });
@@ -232,6 +251,7 @@ function trends(store: GraphStore, def: SourceDef, current: Observation[], now: 
       id: `ins_${uid()}`,
       detector: "trend_break",
       source_kind: def.kind,
+      metric: o.metric,
       headline:
         `${def.label}: ${phrase(o.metric)} is ${dir} steadily — ` +
         `${fmt(fit.slope)}${unit ? " " + unit : ""} per sweep (${pctPerSweep >= 0 ? "+" : ""}${pctPerSweep.toFixed(1)}%), ` +
@@ -242,6 +262,7 @@ function trends(store: GraphStore, def: SourceDef, current: Observation[], now: 
         unit,
       },
       vega_spec: trendSpec(hist.map((h) => ({ label: h.observed_at, value: h.value })), fit, unit, phrase(o.metric)),
+      merit: 0,
       score: 0,
       detected_at: now,
     });
@@ -306,6 +327,7 @@ function distributionShift(store: GraphStore, def: SourceDef, current: Observati
       id: `ins_${uid()}`,
       detector: "distribution_shift",
       source_kind: def.kind,
+      metric,
       headline:
         `${def.label}: the mix of ${phrase(metric)} shifted (Cramér's V ${v.toFixed(2)}, χ²=${chi2.toFixed(0)}, df=${df}) — ` +
         movers.slice(0, 3).map((m) => `${m.label} ${m.d > 0 ? "+" : ""}${fmt(m.d)} vs expected`).join(", "),
@@ -316,6 +338,7 @@ function distributionShift(store: GraphStore, def: SourceDef, current: Observati
         unit: unitOf(def, metric),
       },
       vega_spec: obsVsExpSpec(movers, phrase(metric)),
+      merit: 0,
       score: 0,
       detected_at: now,
     });
@@ -351,11 +374,13 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
       if (a.kind === b.kind) continue; // within-source correlation is mostly plumbing
       const n = Math.min(a.values.length, b.values.length);
       if (n < MIN_CORR_N) continue;
-      const { r } = pearson(a.values.slice(-n), b.values.slice(-n));
+      const da = diff(a.values.slice(-n)), db2 = diff(b.values.slice(-n));
+      if (!isInformative(da, 5) || !isInformative(db2, 5)) continue;
+      const { r } = pearson(da, db2);
       // |r| this close to 1 across independent societal feeds is numerical
       // degeneracy, not a discovery.
       if (Math.abs(r) > 0.995) continue;
-      tested.push({ a, b, r, n, p: correlationP(r, n) });
+      tested.push({ a, b, r, n: n - 1, p: correlationP(r, n - 1) });
     }
   }
 
@@ -369,20 +394,25 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
         id: `ins_${uid()}`,
         detector: "cross_correlation",
         source_kind: `${a.kind}+${b.kind}`,
+        metric: `${a.metric}+${b.metric}`,
         headline:
           `${da?.label ?? a.kind} ${phrase(a.metric)} and ${db?.label ?? b.kind} ${phrase(b.metric)} ` +
-          `move together: r=${r.toFixed(2)} over ${n} aligned sweeps ` +
+          `move together: sweep-to-sweep changes correlate at r=${r.toFixed(2)} over ${n} intervals ` +
           `(survives FDR correction across ${tested.length} pairs tested)`,
         statistic: {
-          name: `Pearson r (Fisher z, BH-FDR ${CORR_FDR} over ${tested.length} tests)`,
+          name: `Pearson r on first differences (Fisher z, BH-FDR ${CORR_FDR} over ${tested.length} tests)`,
           value: r, effect_size: Math.abs(r) * 8, p_value: p, n,
         },
         evidence: {
-          points: a.values.slice(-n).map((v, k) => ({ label: a.stamps.slice(-n)[k], value: v })),
-          baseline: b.values.slice(-n).map((v, k) => ({ label: b.stamps.slice(-n)[k], value: v })),
+          points: diff(a.values.slice(-n)).map((v, k) => ({ label: a.stamps.slice(-n).slice(1)[k], value: v })),
+          baseline: diff(b.values.slice(-n)).map((v, k) => ({ label: b.stamps.slice(-n).slice(1)[k], value: v })),
         },
-        vega_spec: scatterSpec(a.values.slice(-n), b.values.slice(-n), `${a.kind} ${phrase(a.metric)}`, `${b.kind} ${phrase(b.metric)}`),
-        score: 0,
+        vega_spec: scatterSpec(
+          diff(a.values.slice(-n)), diff(b.values.slice(-n)),
+          `Δ ${a.kind} ${phrase(a.metric)}`, `Δ ${b.kind} ${phrase(b.metric)}`,
+        ),
+        merit: 0,
+      score: 0,
         detected_at: now,
       });
     }
@@ -407,19 +437,19 @@ export function runDetectors(store: GraphStore, kind: string, current: Observati
 }
 
 /**
- * Composite rank. Deliberately multiplicative: a claim must be strong AND
- * well-sampled AND not something we already said. Any one of those at zero
- * sinks it, which is what stops the feed turning into the same five
- * observations repeated forever.
+ * Statistical quality, independent of whether we have said it before.
+ *
+ * Merit and novelty must stay separate. Folding novelty into a single number
+ * and then gating publication on it means a standing condition — a city whose
+ * restaurants keep failing inspections — eventually drops out of the feed
+ * entirely, not because it stopped being true but because it stopped being
+ * new. Merit decides whether a claim is worth publishing; novelty only decides
+ * where it ranks among the claims that are.
  */
-export function scoreInsight(ins: Insight, timesSeen: number): number {
+export function meritOf(ins: Insight): number {
   const effect = Math.min(1, ins.statistic.effect_size / 8);
   const confidence = Math.min(1, 1 - ins.statistic.p_value);
   const sample = Math.min(1, Math.log10(1 + ins.statistic.n) / Math.log10(51));
-  // Floored: a condition that is still true after fifty sweeps is less
-  // newsworthy than a new one, but it is not nothing. Without a floor the
-  // feed eventually publishes nothing at all, which is worse than repeating.
-  const novelty = Math.max(0.25, 1 / (1 + timesSeen));
   // Longitudinal claims say more about the world than a single snapshot does.
   const depth: Record<DetectorKind, number> = {
     zscore_outlier: 0.85,
@@ -428,7 +458,13 @@ export function scoreInsight(ins: Insight, timesSeen: number): number {
     distribution_shift: 0.95,
     cross_correlation: 1.0,
   };
-  return effect * confidence * sample * novelty * depth[ins.detector];
+  return effect * confidence * sample * depth[ins.detector];
+}
+
+/** Ranking value: merit discounted by how often we have already said this. */
+export function scoreInsight(ins: Insight, timesSeen: number): number {
+  const novelty = Math.max(0.25, 1 / (1 + timesSeen));
+  return meritOf(ins) * novelty;
 }
 
 /** Stable identity for a claim, so repeats decay instead of re-surfacing. */

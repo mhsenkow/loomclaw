@@ -15,12 +15,15 @@ import type {
   ExecutionSpineStep, Insight, UnifiedGraphNode,
 } from "@loomclaw/core-schema";
 import type { GraphStore } from "./graph.ts";
-import { SOURCES, pollSource } from "./sources/registry.ts";
-import { crossCorrelations, fingerprint, runDetectors, scoreInsight } from "./detectors/index.ts";
+import { SOURCES, SOURCE_BY_KIND, pollSource } from "./sources/registry.ts";
+import { crossCorrelations, fingerprint, meritOf, runDetectors, scoreInsight } from "./detectors/index.ts";
 import { narrate, narrationStep } from "./openclaw.ts";
 
-/** Auto-pin threshold. Below this a card stays on the canvas but out of the story. */
-const PIN_SCORE = 0.22;
+/**
+ * Publication threshold, applied to *merit* rather than score. A claim is
+ * published on its statistical strength; novelty then decides its position.
+ */
+const PIN_MERIT = 0.3;
 /** How many top insights per sweep get sent to OpenClaw — the token circuit-breaker. */
 const NARRATE_BUDGET = Number(process.env.LOOMCLAW_NARRATE_BUDGET ?? 3);
 
@@ -33,6 +36,8 @@ export interface SweepReport {
   sources_ok: number;
   sources_failed: { kind: string; error: string }[];
   observations: number;
+  /** Sources whose payload was identical to last sweep, so nothing was recorded. */
+  sources_unchanged: number;
   insights_found: number;
   insights_published: number;
   pinned: number;
@@ -84,10 +89,27 @@ function retireInvalid(store: GraphStore, emit: (e: string, d: unknown) => void)
     let ins: Insight;
     try { ins = JSON.parse(n.payload.inline_content) as Insight; } catch { continue; }
 
-    const degenerate =
-      ins.detector === "cross_correlation" &&
-      (Math.abs(ins.statistic.value) > 0.995 || ins.statistic.n < 20);
-    if (!degenerate) continue;
+    // A record written before the current schema cannot be checked against the
+    // current rules. Retire it rather than grandfather it: if it still holds,
+    // this very sweep republishes it, and if it does not, it should be gone.
+    const unverifiable = typeof ins.metric !== "string" || typeof ins.merit !== "number";
+
+    const invalid =
+      unverifiable ||
+      // Degenerate or underpowered correlation.
+      (ins.detector === "cross_correlation" &&
+        (Math.abs(ins.statistic.value) > 0.995 ||
+          ins.statistic.n < 20 ||
+          // Published before the switch to first differences, so it is a
+          // levels correlation between autocorrelated series.
+          !ins.statistic.name.includes("first differences"))) ||
+      // A metric since marked structural: its cross-sectional ranking is a
+      // property of the domain, not a finding.
+      (["zscore_outlier", "concentration"].includes(ins.detector) &&
+        (SOURCE_BY_KIND.get(ins.source_kind)?.structural ?? []).includes(ins.metric)) ||
+      // Below the current publication bar.
+      ins.merit < PIN_MERIT;
+    if (!invalid) continue;
 
     n.weave.is_pinned = false;
     n.weave.sequence_index = null;
@@ -109,7 +131,7 @@ export async function runSweep(
 
   const report: SweepReport = {
     sweep_id: sweepId, started_at: now, duration_ms: 0,
-    sources_ok: 0, sources_failed: [], observations: 0,
+    sources_ok: 0, sources_failed: [], observations: 0, sources_unchanged: 0,
     insights_found: 0, insights_published: 0, pinned: 0, retired: 0, narrated_via: {},
   };
 
@@ -165,22 +187,39 @@ export async function runSweep(
     }
 
     report.sources_ok++;
-    report.observations += res.observations.length;
 
     // ---- 2. detectors run against history BEFORE the new rows land ----
     const td = Date.now();
     const found = runDetectors(store, def.kind, res.observations, now);
-    store.recordObservations(res.observations);
+
+    /*
+     * Only record when the payload actually changed.
+     *
+     * Sweeps run far more often than most of these sources publish — NYC Open
+     * Data is daily, Open Food Facts slower still. Appending an identical row
+     * every sweep would manufacture history: a trend or correlation test would
+     * see n=50 when the true independent sample is n=1, and report a p-value
+     * built almost entirely out of duplicates. Skipping unchanged payloads
+     * makes n the number of genuinely distinct observations, which is the only
+     * denominator those tests are entitled to.
+     */
+    const contentHash = hash(JSON.stringify(res.observations.map((o) => [o.metric, o.dim, o.value])));
+    const unchanged = contentHash === store.getNode(boardId)?.execution.input_hash;
+    if (unchanged) report.sources_unchanged++;
+    else { store.recordObservations(res.observations); report.observations += res.observations.length; }
 
     step({
       tool_name: "detector_scan",
       input_args: {
         detectors: ["zscore_outlier", "concentration", "trend_break", "distribution_shift"],
         observations: res.observations.length,
+        recorded: !unchanged,
       },
-      stdout_preview: found.length
-        ? found.map((f) => `${f.detector}: effect ${f.statistic.effect_size.toFixed(1)}, p=${f.statistic.p_value.toExponential(1)}`).join("\n")
-        : "no claim cleared the significance floor",
+      stdout_preview:
+        (unchanged ? "upstream unchanged since last sweep — not recorded (would inflate n)\n" : "") +
+        (found.length
+          ? found.map((f) => `${f.detector}: effect ${f.statistic.effect_size.toFixed(1)}, p=${f.statistic.p_value.toExponential(1)}`).join("\n")
+          : "no claim cleared the significance floor"),
       status: "success",
       duration_ms: Date.now() - td,
     });
@@ -189,7 +228,7 @@ export async function runSweep(
     for (const insight of found) candidates.push({ insight, boardId, spineId });
 
     board.execution.status = found.length ? "resolved" : "idle";
-    board.execution.input_hash = hash(JSON.stringify(res.observations.map((o) => [o.metric, o.dim, o.value])));
+    board.execution.input_hash = contentHash;
     board.execution.token_weight = Math.round(res.bytes / 4);
     store.upsertNode(board);
     emit("node:update", board);
@@ -217,6 +256,7 @@ export async function runSweep(
   // ---- 4. score, de-duplicate, rank ----
   for (const c of candidates) {
     const times = store.noteFingerprint(fingerprint(c.insight), now);
+    c.insight.merit = meritOf(c.insight);
     c.insight.score = scoreInsight(c.insight, times);
   }
   candidates.sort((a, b) => b.insight.score - a.insight.score);
@@ -225,7 +265,7 @@ export async function runSweep(
   // Local framing is free and instant, so the Weave is never truncated to the
   // agent budget — the budget only decides which claims get an agent's read.
   const narrations = new Map<string, { text: string; via: string }>();
-  const publishable = candidates.filter((c) => c.insight.score >= PIN_SCORE);
+  const publishable = candidates.filter((c) => c.insight.merit >= PIN_MERIT);
   for (const [i, c] of publishable.entries()) {
     const res = await narrate(c.insight, i < NARRATE_BUDGET);
     narrations.set(c.insight.id, { text: res.text, via: res.via });
@@ -239,7 +279,7 @@ export async function runSweep(
   let pinIndex = store.nextWeaveIndex();
   for (const [i, c] of candidates.entries()) {
     const { insight, boardId } = c;
-    const shouldPin = insight.score >= PIN_SCORE && narrations.has(insight.id);
+    const shouldPin = insight.merit >= PIN_MERIT && narrations.has(insight.id);
 
     const node: UnifiedGraphNode = {
       id: insight.id,
