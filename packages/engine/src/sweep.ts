@@ -15,7 +15,7 @@ import type {
   ExecutionSpineStep, Insight, UnifiedGraphNode,
 } from "@loomclaw/core-schema";
 import type { GraphStore } from "./graph.ts";
-import { COLLECTORS, COLLECTOR_BY_KIND, WINDOW_DAYS } from "./collectors/index.ts";
+import { COLLECTOR_BY_KIND, WINDOW_DAYS, activeCollectors } from "./collectors/index.ts";
 import { crossCorrelations, fingerprint, meritOf, runDetectors, scoreInsight } from "./detectors/index.ts";
 import { narrate, narrationStep } from "./openclaw.ts";
 
@@ -135,6 +135,8 @@ export async function runSweep(
     insights_found: 0, insights_published: 0, pinned: 0, retired: 0, narrated_via: {},
   };
 
+  // Only what the profile switched on: an unpicked world feed is never polled.
+  const COLLECTORS = activeCollectors();
   emit("sweep:start", { sweep_id: sweepId, sources: COLLECTORS.length });
 
   // Boards left behind by a collector that no longer exists would otherwise

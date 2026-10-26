@@ -141,7 +141,8 @@ function crossSectionalOutliers(def: Collector, current: Observation[], now: str
       const total = values.reduce((a, b) => a + b, 0);
       const share = total > 0 ? (top.value / total) * 100 : 0;
       comparison =
-        `${fmt(top.value)}${unit ? " " + unit : ""} — ${share.toFixed(0)}% of your ${fmt(total)}` +
+        `${fmt(top.value)}${unit ? " " + unit : ""} — ${share.toFixed(0)}% of ` +
+        `${def.scope === "self" ? "your " : "the "}${fmt(total)}` +
         `${unit ? " " + unit : ""} across ${values.length} (${z.toFixed(1)}σ vs the rest)`;
     }
     if (p > MAX_P) continue;
@@ -152,7 +153,9 @@ function crossSectionalOutliers(def: Collector, current: Observation[], now: str
       detector: "zscore_outlier",
       source_kind: def.kind,
       metric,
-      headline: `${top.dim} leads your ${phrase(metric)}: ${comparison}`,
+      headline: def.scope === "self"
+        ? `${top.dim} leads your ${phrase(metric)}: ${comparison}`
+        : `${def.label}: ${top.dim} leads ${phrase(metric)} — ${comparison}`,
       statistic: { name: statName, value: z, effect_size: Math.abs(z), p_value: p, n: obs.length },
       evidence: {
         points: ranked.slice(0, 12).map((o) => ({ label: o.dim, value: o.value })),
@@ -206,7 +209,10 @@ function concentration(def: Collector, current: Observation[], now: string): Ins
       source_kind: def.kind,
       metric,
       headline:
-        `Your ${phrase(metric)}: concentrated in a few places (Gini ${g.toFixed(2)} vs ${nullG.toFixed(2)} if even) — ` +
+        (def.scope === "self"
+          ? `Your ${phrase(metric)}: concentrated in a few places `
+          : `${def.label}: ${phrase(metric)} is concentrated `) +
+        `(Gini ${g.toFixed(2)} vs ${nullG.toFixed(2)} if even) — ` +
         `${ranked.slice(0, 3).map((o) => o.dim).join(", ")} hold ${top3Share.toFixed(0)}% of ${fmt(total)}${unit ? " " + unit : ""} across ${values.length}`,
       statistic: { name: "Gini vs uniform null", value: g, effect_size: z, p_value: p, n: values.length },
       evidence: {
@@ -250,7 +256,9 @@ function levelShifts(store: GraphStore, def: Collector, current: Observation[], 
       source_kind: def.kind,
       metric: o.metric,
       headline:
-        `Your ${phrase(o.metric)} ${plural(o.metric)} ${Math.abs(z).toFixed(1)}σ ${dir} your own baseline — ` +
+        (def.scope === "self"
+          ? `Your ${phrase(o.metric)} ${plural(o.metric)} ${Math.abs(z).toFixed(1)}σ ${dir} your own baseline — `
+          : `${def.label}: ${phrase(o.metric)} ${plural(o.metric)} ${Math.abs(z).toFixed(1)}σ ${dir} its baseline — `) +
         `${fmt(o.value)}${unit ? " " + unit : ""} vs a ${prior.length}-day median of ${fmt(base)}`,
       statistic: { name: `robust z vs own history (MAD${scaleNote})`, value: z, effect_size: Math.abs(z), p_value: p, n: prior.length },
       evidence: {
@@ -296,7 +304,9 @@ function trends(store: GraphStore, def: Collector, current: Observation[], now: 
       source_kind: def.kind,
       metric: o.metric,
       headline:
-        `Your ${phrase(o.metric)} ${plural(o.metric)} ${dir} steadily — ` +
+        (def.scope === "self"
+          ? `Your ${phrase(o.metric)} ${plural(o.metric)} ${dir} steadily — `
+          : `${def.label}: ${phrase(o.metric)} ${plural(o.metric)} ${dir} steadily — `) +
         `${fmt(fit.slope)}${unit ? " " + unit : ""} per day (${pctPerSweep >= 0 ? "+" : ""}${pctPerSweep.toFixed(1)}%), ` +
         `R²=${fit.r2.toFixed(2)} over ${fit.n} days`,
       statistic: { name: "OLS slope t-statistic", value: fit.slope, effect_size: Math.abs(fit.t), p_value: p, n: fit.n },
@@ -372,7 +382,10 @@ function distributionShift(store: GraphStore, def: Collector, current: Observati
       source_kind: def.kind,
       metric,
       headline:
-        `The mix of your ${phrase(metric)} shifted (Cramér's V ${v.toFixed(2)}, χ²=${chi2.toFixed(0)}, df=${df}) — ` +
+        (def.scope === "self"
+          ? `The mix of your ${phrase(metric)} shifted `
+          : `${def.label}: the mix of ${phrase(metric)} shifted `) +
+        `(Cramér's V ${v.toFixed(2)}, χ²=${chi2.toFixed(0)}, df=${df}) — ` +
         movers.slice(0, 3).map((m) => `${m.label} ${m.d > 0 ? "+" : ""}${fmt(m.d)} vs expected`).join(", "),
       statistic: { name: "χ² goodness-of-fit (Cramér's V)", value: chi2, effect_size: v * 20, p_value: p, n: Math.round(nowTotal) },
       evidence: {
@@ -433,15 +446,31 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
     if (Math.abs(r) < 0.8) continue;
     {
       const da = COLLECTOR_BY_KIND.get(a.kind), db = COLLECTOR_BY_KIND.get(b.kind);
+      /*
+       * A correlation spanning your own data and a world feed is worth
+       * naming as such: it is the only kind of finding neither half of this
+       * could have produced alone. The statistic is identical either way —
+       * only the framing changes.
+       */
+      const crossScope = !!da && !!db && da.scope !== db.scope;
+      const selfIsA = da?.scope === "self";
+      const selfLabel = selfIsA ? phrase(a.metric) : phrase(b.metric);
+      const worldSide = selfIsA ? db : da;
+      const worldMetric = selfIsA ? phrase(b.metric) : phrase(a.metric);
+
       out.push({
         id: `ins_${uid()}`,
         detector: "cross_correlation",
         source_kind: `${a.kind}+${b.kind}`,
         metric: `${a.metric}+${b.metric}`,
-        headline:
-          `${da?.label ?? a.kind} ${phrase(a.metric)} and ${db?.label ?? b.kind} ${phrase(b.metric)} ` +
-          `move together: day-to-day changes correlate at r=${r.toFixed(2)} over ${n} days ` +
-          `(survives FDR correction across ${tested.length} pairs tested)`,
+        headline: crossScope
+          ? `You and the world: your ${selfLabel} moves with ` +
+            `${worldSide?.label ?? "a world feed"} ${worldMetric} — day-to-day changes ` +
+            `correlate at r=${r.toFixed(2)} over ${n} days ` +
+            `(survives FDR correction across ${tested.length} pairs tested)`
+          : `${da?.label ?? a.kind} ${phrase(a.metric)} and ${db?.label ?? b.kind} ${phrase(b.metric)} ` +
+            `move together: day-to-day changes correlate at r=${r.toFixed(2)} over ${n} days ` +
+            `(survives FDR correction across ${tested.length} pairs tested)`,
         statistic: {
           name: `Pearson r on first differences (Fisher z, BH-FDR ${CORR_FDR} over ${tested.length} tests)`,
           value: r, effect_size: Math.abs(r) * 8, p_value: p, n,
@@ -477,6 +506,28 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
  * detectors answer is "where does the series stand *now*", so they get the
  * latest point and read the rest out of the store.
  */
+const todayKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/**
+ * Drop the still-filling day from a daily-grain series.
+ *
+ * Collectors bucket by real calendar day, so "today" holds only the hours
+ * elapsed so far. Compared against complete days it reads as a collapse —
+ * the engine reported "lines per day 6.3σ below baseline: 1 vs 6,700"
+ * at breakfast. Only longitudinal tests need this; a cross-sectional
+ * comparison of today's dimensions against each other is unaffected.
+ */
+function completeDaysOnly(obs: Observation[], daily: boolean): Observation[] {
+  if (!daily) return obs;
+  const today = todayKey();
+  const withoutToday = obs.filter((o) => !o.observed_at.startsWith(today));
+  // If today is all there is, there is no complete day to compare against.
+  return withoutToday.length ? withoutToday : [];
+}
+
 function latestPerSeries(current: Observation[]): Observation[] {
   const best = new Map<string, Observation>();
   for (const o of current) {
@@ -491,11 +542,14 @@ export function runDetectors(store: GraphStore, kind: string, current: Observati
   const def = COLLECTOR_BY_KIND.get(kind);
   if (!def || !current.length) return [];
   const latest = latestPerSeries(current);
+  // Cross-sectional tests compare today's dimensions with each other, so a
+  // partial day is fine. Longitudinal tests compare days, so it is not.
+  const longitudinal = latestPerSeries(completeDaysOnly(current, def.dailyGrain ?? false));
   return [
     ...crossSectionalOutliers(def, latest, now),
     ...concentration(def, latest, now),
-    ...levelShifts(store, def, latest, now),
-    ...trends(store, def, latest, now),
+    ...levelShifts(store, def, longitudinal, now),
+    ...trends(store, def, longitudinal, now),
     ...distributionShift(store, def, latest, now),
   ];
 }

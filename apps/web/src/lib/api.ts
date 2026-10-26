@@ -26,3 +26,17 @@ export const setPin = (id: string, pinned: boolean) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ id, pinned }),
   });
+
+export const getProfile = () =>
+  j<{
+    profile: { interests: string[] | null; home_city: string; opted_in: string[] };
+    onboarded: boolean;
+    topics: import("../components/Onboarding").TopicOption[];
+  }>("/api/profile");
+
+export const onboard = (interests: string[], home_city: string) =>
+  j<{ profile: unknown; enabled: { kind: string; label: string; scope: string }[] }>("/api/onboard", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ interests, home_city }),
+  });

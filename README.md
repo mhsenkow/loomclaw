@@ -17,6 +17,23 @@ Built on two applications that already existed:
 
 ---
 
+## Onboarding
+
+On first run it asks what you want watched, in three groups:
+
+- **About you** — read from this machine, always on
+- **Both** — health, environment, technology, cities, transport, food. These have a
+  personal side *and* a world side; picking one gets you both
+- **About the world** — politics, money, science, safety, culture, world
+
+What you pick does two things, and the second is the one that matters: it ranks what
+you see, and it decides **which world feeds are fetched at all**. An interest you don't
+pick is never polled — the chooser shows the actual sources each one switches on, so
+the consequence is visible before you commit to it. Picking nothing is valid: you get
+findings about yourself and no outbound requests.
+
+Stored at `~/.loomclaw/profile.json`. Delete it to run onboarding again.
+
 ## The one idea
 
 There is **one** graph. Two views are projections of it, not separate state:
@@ -31,7 +48,12 @@ There is **one** graph. Two views are projections of it, not separate state:
 
 ## What it reads
 
-Every collector reads something already on this machine.
+Two scopes, one graph. Personal collectors read this machine; world feeds come
+through Loom's deployed worker. Downstream nothing distinguishes them — same
+observations, same detectors, same ranking — which is what makes a **you × world**
+correlation just another cross-source test.
+
+### About you
 
 | Collector | Source | What it can tell you |
 | :-- | :-- | :-- |
@@ -41,6 +63,14 @@ Every collector reads something already on this machine.
 | **Where you read** | Chrome history *(domains only)* | **off by default** — see below |
 | **Your body** | Apple Health export | sleep, steps, resting heart rate, HRV |
 | **The air where you live** | Loom worker, filtered to your city | the one environmental measure acting on you directly |
+
+### About the world
+
+`usgs` `nws` `aq` `nyc311` `nyc_inspections` `pageviews` `crypto` `faa_delays`
+`fda_recalls` `vehicle_recalls` (NHTSA via data.transportation.gov) `lobbying`
+`arxiv` `internet_outages` `hn` `openfood`
+
+Each is tagged with the interests it serves, and only runs if you picked one of them.
 
 Most repositories here are forks of other people's work, so commits are filtered
 to your identity — without that this would measure strangers. Identities come from
@@ -112,6 +142,10 @@ locally generated framing. The header says which happened.
   duplicates from sweeping faster than the data changes.
 - **Merit separate from novelty.** Merit gates publication; novelty only orders it.
   Folded together, a pattern that stayed true left the feed for being unsurprising.
+- **Partial days excluded.** Collectors bucket by real calendar day, so "today" holds
+  only the hours elapsed. Compared against complete days it reads as a collapse — the
+  engine reported *"lines per day 6.3σ below baseline: 1 vs 6,700"* at breakfast.
+  Longitudinal tests now use complete days only; cross-sectional ones are unaffected.
 - **Stable claim identity.** A claim's node id derives from its fingerprint, so
   re-detection updates it in place and anything not re-detected is retired.
 

@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Collector, CollectorResult } from "./types.ts";
 import { HOURS, daily, totals } from "./types.ts";
+import { SELF_TOPICS } from "../topics.ts";
 
 const ROOT = join(homedir(), ".claude", "projects");
 
@@ -21,6 +22,9 @@ const projectName = (dir: string) => dir.split("-").filter(Boolean).pop() ?? dir
 
 export const aiCollector: Collector = {
   kind: "ai",
+  scope: "self",
+  dailyGrain: true,
+  topics: SELF_TOPICS["ai"],
   label: "How you work with AI",
   area: "learning",
   premise: "Your Claude Code sessions — when you reach for an agent, on which projects, and how long you stay with it.",

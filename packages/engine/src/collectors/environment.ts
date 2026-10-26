@@ -9,12 +9,15 @@
 
 import type { Collector, CollectorResult } from "./types.ts";
 import { dayKey, totals } from "./types.ts";
+import { SELF_TOPICS } from "../topics.ts";
 
 const LOOM_BASE = process.env.LOOM_BASE_URL ?? "https://loom.ibm.io";
 const HOME_CITY = process.env.LOOMCLAW_HOME_CITY ?? "New York";
 
 export const environmentCollector: Collector = {
   kind: "environment",
+  scope: "self",
+  topics: SELF_TOPICS["environment"],
   label: "The air where you live",
   area: "wellbeing",
   premise: `Air quality in ${HOME_CITY} — the one environmental measure that acts on you directly, every hour, whether or not you notice it.`,
@@ -23,6 +26,10 @@ export const environmentCollector: Collector = {
     pm2_5: "µg/m³", european_aqi: "AQI", nitrogen_dioxide: "µg/m³",
     aqi_vs_world: "AQI",
   },
+  // The peer list exists to give your own number a reference point. Which
+  // *other* city happens to top it is not a finding about you, so it is
+  // excluded from cross-sectional tests; your city's own readings are not.
+  structural: ["aqi_vs_world"],
 
   available: async () => {
     try {

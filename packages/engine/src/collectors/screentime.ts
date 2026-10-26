@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Collector, CollectorResult } from "./types.ts";
 import { HOURS, WEEKDAYS, daily, totals } from "./types.ts";
+import { SELF_TOPICS } from "../topics.ts";
 
 const DB = join(homedir(), "Library", "Application Support", "Knowledge", "knowledgeC.db");
 /** Core Data epoch: 2001-01-01. */
@@ -56,6 +57,9 @@ const pretty = (bundle: string) =>
 
 export const screenTimeCollector: Collector = {
   kind: "screentime",
+  scope: "self",
+  dailyGrain: true,
+  topics: SELF_TOPICS["screentime"],
   label: "Where your attention goes",
   area: "attention",
   premise: "Every app session macOS recorded — how long, how often, and at what hour your focus actually landed.",

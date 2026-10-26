@@ -14,7 +14,9 @@
 
 import type { Observation } from "../graph.ts";
 
-export type LifeArea = "work" | "attention" | "learning" | "wellbeing" | "environment";
+export type LifeArea =
+  | "work" | "attention" | "learning" | "wellbeing" | "environment"
+  | "society" | "science" | "markets";
 
 export interface CollectorResult {
   ok: boolean;
@@ -29,6 +31,22 @@ export interface Collector {
   kind: string;
   label: string;
   area: LifeArea;
+  /**
+   * Whose data this is. The two scopes share one graph and one set of
+   * detectors — the distinction exists so a finding can say "this is about
+   * you" or "this is about the world", and so a correlation spanning both
+   * can be called out as exactly that.
+   */
+  scope: "self" | "world";
+  /** Interests this collector serves, and how directly (0–1). */
+  topics: Partial<Record<string, number>>;
+  /**
+   * True when observations are bucketed by real calendar day, which means
+   * today's bucket is still filling. Longitudinal detectors must skip it:
+   * at 9am "today" holds an hour of work and looks like a collapse against
+   * a hundred complete days.
+   */
+  dailyGrain?: boolean;
   /** What this says about you — shown on the Board header. */
   premise: string;
   /** Where the data physically lives, so it is never a mystery. */

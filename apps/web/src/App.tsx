@@ -7,6 +7,7 @@ import { Weave } from "./lenses/Weave.tsx";
 import { Muse } from "./lenses/Muse.tsx";
 import { Drawer } from "./components/Drawer.tsx";
 import { GoalBar } from "./components/GoalBar.tsx";
+import { Onboarding, type TopicOption } from "./components/Onboarding.tsx";
 import * as api from "./lib/api.ts";
 import type { Beat, BoardView, GraphNode, Insight, Persona, Status } from "./lib/types.ts";
 
@@ -18,6 +19,9 @@ export default function App() {
   const [beats, setBeats] = useState<Beat[]>([]);
   const [gaps, setGaps] = useState<string[]>([]);
   const [agentFramed, setAgentFramed] = useState(0);
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
+  const [topics, setTopics] = useState<TopicOption[]>([]);
+  const [homeCity, setHomeCity] = useState("New York");
   const [boards, setBoards] = useState<BoardView[]>([]);
   const [persona, setPersona] = useState<Persona | null>(null);
   const [presets, setPresets] = useState<{ label: string; goals: string }[]>([]);
@@ -40,9 +44,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    api.getProfile()
+      .then((p) => { setOnboarded(p.onboarded); setTopics(p.topics); setHomeCity(p.profile.home_city); })
+      .catch(() => setOnboarded(true)); // engine unreachable: fall through to the error screen
     refresh();
     api.getPersonas().then((p) => setPresets(p.presets)).catch(() => {});
   }, [refresh]);
+
+  const finishOnboarding = async (interests: string[], city: string) => {
+    setBusy(true);
+    try {
+      await api.onboard(interests, city);
+      setOnboarded(true);
+      await api.triggerSweep().catch(() => {});
+      await refresh();
+    } finally { setBusy(false); }
+  };
 
   // Live stream from the engine: a sweep finishing re-projects both lenses.
   useEffect(() => {
@@ -168,17 +185,23 @@ export default function App() {
         </button>
       </header>
 
-      <GoalBar presets={presets} persona={persona} onApply={applyPersona} busy={busy} />
+      {onboarded !== false && (
+        <GoalBar presets={presets} persona={persona} onApply={applyPersona} busy={busy} />
+      )}
 
       {error && <div className="scrim" style={{ color: "var(--loom-error)" }}>{error}</div>}
 
-      {!error && !loadedOnce.current && <div className="scrim">Connecting to the engine…</div>}
+      {!error && onboarded === false && (
+        <Onboarding topics={topics} homeCity={homeCity} onDone={finishOnboarding} busy={busy} />
+      )}
 
-      {!error && loadedOnce.current && lens === "weave" && (
+      {!error && onboarded !== false && !loadedOnce.current && <div className="scrim">Connecting to the engine…</div>}
+
+      {!error && onboarded !== false && loadedOnce.current && lens === "weave" && (
         <Weave beats={beats} persona={persona} gaps={gaps} onZoom={zoomTo} />
       )}
 
-      {!error && loadedOnce.current && lens === "muse" && (
+      {!error && onboarded !== false && loadedOnce.current && lens === "muse" && (
         <Muse
           boards={boards}
           focusBoardId={focusBoard}

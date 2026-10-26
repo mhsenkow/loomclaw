@@ -14,41 +14,17 @@
 
 import type { Insight } from "@loomclaw/core-schema";
 import { describePlace, geoAffinity, placeFromGoals, type Place } from "./geo.ts";
+
 import { COLLECTOR_BY_KIND } from "./collectors/index.ts";
+import { LEXICON, SELF_TOPICS, TOPICS, TOPIC_META, type Topic } from "./topics.ts";
+import { WORLD_BY_KIND } from "./collectors/world-feeds.ts";
 
-export type Topic =
-  | "output" | "rhythm" | "focus" | "balance" | "learning"
-  | "projects" | "wellbeing" | "attention";
+export { TOPICS, TOPIC_META, type Topic };
 
-export const TOPICS: Topic[] = [
-  "output", "rhythm", "focus", "balance", "learning",
-  "projects", "wellbeing", "attention",
-];
-
-/** What each collector can actually tell you about, and how directly (0–1). */
+/** Topic affinities for every collector, personal and world alike. */
 export const SOURCE_TOPICS: Record<string, Partial<Record<Topic, number>>> = {
-  git:         { output: 1.0, projects: 0.95, rhythm: 0.9, balance: 0.6 },
-  screentime:  { attention: 1.0, focus: 0.95, balance: 0.8, rhythm: 0.7 },
-  ai:          { learning: 1.0, output: 0.7, projects: 0.6, rhythm: 0.5 },
-  browsing:    { attention: 1.0, focus: 0.8, learning: 0.5 },
-  health:      { wellbeing: 1.0, balance: 0.9, rhythm: 0.5, focus: 0.4 },
-  environment: { wellbeing: 1.0, balance: 0.4 },
-};
-
-/**
- * Words that point at a topic. A router, not a classifier — and written in
- * the language people actually use about themselves ("burning out", "late
- * nights", "distracted"), not in the vocabulary of the metrics.
- */
-const LEXICON: Record<Topic, string[]> = {
-  output:     ["output", "productive", "productivity", "ship", "shipping", "build", "built", "building", "commit", "work done", "getting done", "accomplish", "deliver"],
-  rhythm:     ["rhythm", "when", "time of day", "schedule", "morning", "night", "late", "hour", "pattern", "routine", "consistent", "cadence", "best work"],
-  focus:      ["focus", "focused", "deep work", "distract", "distracted", "interrupt", "context switch", "switching", "concentration", "scattered", "flow"],
-  balance:    ["balance", "burnout", "burning out", "overwork", "overworking", "rest", "rested", "break", "weekend", "too much", "exhaust", "tired", "sustainable", "health of", "run down", "recover"],
-  learning:   ["learn", "learning", "ai", "agent", "claude", "study", "skill", "improve", "growth", "research", "explore"],
-  projects:   ["project", "projects", "repo", "repository", "what am i", "working on", "side project", "spread", "juggling", "scattered across"],
-  wellbeing:  ["wellbeing", "well-being", "health", "healthy", "air", "sleep", "sleeping", "slept", "body", "environment", "breathing", "feel", "heart", "resting", "steps", "walk", "exercise", "fitness", "recovery", "hrv"],
-  attention:  ["attention", "screen time", "screen", "app", "browsing", "scroll", "doomscroll", "waste", "spending time", "where my time", "where does my time"],
+  ...SELF_TOPICS,
+  ...Object.fromEntries([...WORLD_BY_KIND].map(([kind, def]) => [kind, def.topics])),
 };
 
 export interface Persona {

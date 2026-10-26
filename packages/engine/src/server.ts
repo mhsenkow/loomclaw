@@ -8,7 +8,9 @@ import { join } from "node:path";
 import type { Insight, UnifiedGraphNode } from "@loomclaw/core-schema";
 import { GraphStore } from "./graph.ts";
 import { runSweep, type SweepReport } from "./sweep.ts";
-import { COLLECTORS, WINDOW_DAYS } from "./collectors/index.ts";
+import { COLLECTORS, WINDOW_DAYS, activeCollectors } from "./collectors/index.ts";
+import { TOPIC_META } from "./topics.ts";
+import { collectorEnabled, interestWeights, isOnboarded, loadProfile, saveProfile } from "./profile.ts";
 import { openclawStatus } from "./openclaw.ts";
 import {
   PRESET_PERSONAS, SOURCE_TOPICS, TOPICS, coverageGaps, insightPlace, makePersona,
@@ -63,6 +65,7 @@ function weaveProjection() {
         relevance: insight ? relevance(persona, insight) : 0,
         rank: insight ? rankForPersona(persona, insight) : 0,
         place: insight ? describePlace(insightPlace(insight)) : "anywhere",
+        scope: insight ? scopeOf(insight) : "self",
       };
     })
     .filter((b) => b.insight)
@@ -78,6 +81,17 @@ function weaveProjection() {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Whether a claim is about you, the world, or the meeting of the two.
+ * A cross-source claim spanning both scopes is its own category.
+ */
+function scopeOf(insight: Insight): "self" | "world" | "both" {
+  const scopes = new Set(
+    insight.source_kind.split("+").map((k) => COLLECTORS.find((c) => c.kind === k)?.scope ?? "self"),
+  );
+  return scopes.size > 1 ? "both" : (scopes.has("world") ? "world" : "self");
 }
 
 /** Topics the person asked for that nothing measured this sweep. */
@@ -193,9 +207,11 @@ const server = createServer(async (req, res) => {
       next_sweep_ms: SWEEP_MS,
       observations: store.observationCount(),
       window_days: WINDOW_DAYS,
-      sources: await Promise.all(COLLECTORS.map(async (c) => ({
-        kind: c.kind, label: c.label, area: c.area, premise: c.premise,
-        origin: c.origin, available: await c.available(),
+      onboarded: isOnboarded(),
+      profile: loadProfile(),
+      sources: await Promise.all(activeCollectors().map(async (c) => ({
+        kind: c.kind, label: c.label, area: c.area, scope: c.scope,
+        premise: c.premise, origin: c.origin, available: await c.available(),
       }))),
       openclaw: oc,
       persona,
@@ -212,6 +228,49 @@ const server = createServer(async (req, res) => {
   }
   if (url.pathname === "/api/muse") return json(res, { boards: museProjection(), edges: store.allEdges() });
   if (url.pathname === "/api/personas") return json(res, { presets: PRESET_PERSONAS, topics: TOPICS, active: persona });
+
+  // ---- onboarding ----
+
+  if (url.pathname === "/api/profile") {
+    const p = loadProfile();
+    return json(res, {
+      profile: p,
+      onboarded: isOnboarded(),
+      // Everything pickable, with what each one switches on, so the chooser
+      // can show the actual consequence rather than a bare label.
+      topics: TOPICS.map((t) => ({
+        id: t,
+        ...TOPIC_META[t],
+        feeds: COLLECTORS
+          .filter((c) => (c.topics[t] ?? 0) >= 0.5)
+          .map((c) => ({ kind: c.kind, label: c.label, scope: c.scope })),
+      })),
+    });
+  }
+
+  if (url.pathname === "/api/profile" && req.method === "POST") {
+    return json(res, { error: "use POST /api/onboard" }, 400);
+  }
+
+  if (url.pathname === "/api/onboard" && req.method === "POST") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const interests = Array.isArray(body.interests)
+      ? body.interests.filter((t: string) => TOPICS.includes(t as never))
+      : [];
+    const p = saveProfile({
+      interests: interests.length ? interests : null,
+      home_city: typeof body.home_city === "string" && body.home_city.trim() ? body.home_city.trim() : undefined,
+    });
+    // Rank by what was just picked, without waiting for a sweep.
+    persona = makePersona("Your interests", interests.join(", "));
+    persona.weights = interestWeights(p);
+    emit("profile:change", p);
+    const enabled = COLLECTORS.filter((c) => collectorEnabled(c, p));
+    return json(res, {
+      profile: p,
+      enabled: enabled.map((c) => ({ kind: c.kind, label: c.label, scope: c.scope })),
+    });
+  }
 
   if (url.pathname === "/api/persona" && req.method === "POST") {
     const { label, goals } = JSON.parse((await readBody(req)) || "{}");

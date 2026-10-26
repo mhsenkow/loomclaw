@@ -37,7 +37,11 @@ export interface SpineStep {
   duration_ms: number; started_at: string;
 }
 
-export interface Beat { node: GraphNode; insight: Insight; relevance: number; rank: number }
+export interface Beat {
+  node: GraphNode; insight: Insight; relevance: number; rank: number;
+  /** Whether this is about you, the world, or the meeting of the two. */
+  scope?: "self" | "world" | "both";
+}
 
 export interface BoardView {
   board: GraphNode;
@@ -55,6 +59,7 @@ export interface Persona {
 
 export interface Status {
   sweeping: boolean;
+  onboarded?: boolean;
   last_report: {
     sweep_id: string; duration_ms: number; sources_ok: number;
     sources_failed: { kind: string; error: string }[];
@@ -62,7 +67,7 @@ export interface Status {
     pinned: number; narrated_via: Record<string, number>;
   } | null;
   observations: number;
-  sources: { kind: string; label: string; group: string; premise: string; attribution: string }[];
+  sources: { kind: string; label: string; area: string; scope: "self" | "world"; premise: string; origin: string; available: { ok: boolean; reason?: string } }[];
   openclaw: { ok: boolean; detail: string };
   persona: Persona;
   db: string;

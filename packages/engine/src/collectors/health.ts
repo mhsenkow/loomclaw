@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Observation } from "../graph.ts";
 import type { Collector, CollectorResult } from "./types.ts";
+import { SELF_TOPICS } from "../topics.ts";
 
 const exec = promisify(execFile);
 const CACHE = join(homedir(), ".loomclaw", "health-cache.json");
@@ -198,6 +199,9 @@ async function parseExport(path: string): Promise<Parsed> {
 
 export const healthCollector: Collector = {
   kind: "health",
+  scope: "self",
+  dailyGrain: true,
+  topics: SELF_TOPICS["health"],
   label: "Your body",
   area: "wellbeing",
   premise: "Sleep, steps and heart from Apple Health — the record of how you were actually doing while you did everything else.",

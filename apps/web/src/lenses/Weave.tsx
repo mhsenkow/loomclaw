@@ -73,6 +73,9 @@ export function Weave({
               <span className="beat-index">#{i + 1}</span>
 
               <div className="beat-meta">
+                <span className={`scope-pill ${b.scope ?? "self"}`}>
+                  {b.scope === "world" ? "world" : b.scope === "both" ? "you × world" : "you"}
+                </span>
                 <span className="detector-pill">{DETECTOR_LABEL[b.insight.detector]}</span>
                 <span className="source-pill">{b.insight.source_kind}</span>
                 {b.relevance > 0 && focused && (

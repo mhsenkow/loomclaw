@@ -15,6 +15,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Collector, CollectorResult } from "./types.ts";
 import { HOURS, daily, totals } from "./types.ts";
+import { SELF_TOPICS } from "../topics.ts";
 
 const SRC = join(homedir(), "Library", "Application Support", "Google", "Chrome", "Default", "History");
 /** Chrome timestamps: microseconds since 1601-01-01. */
@@ -22,6 +23,9 @@ const CHROME_EPOCH_OFFSET = 11644473600_000_000;
 
 export const browsingCollector: Collector = {
   kind: "browsing",
+  scope: "self",
+  dailyGrain: true,
+  topics: SELF_TOPICS["browsing"],
   label: "Where you read",
   area: "attention",
   premise: "Which domains your browsing actually lands on, and at what hours — the shape of your reading, not its content.",

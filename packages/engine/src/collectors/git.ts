@@ -13,6 +13,7 @@ import { promisify } from "node:util";
 import { basename, dirname } from "node:path";
 import type { Collector, CollectorResult } from "./types.ts";
 import { HOURS, WEEKDAYS, daily, totals } from "./types.ts";
+import { SELF_TOPICS } from "../topics.ts";
 
 const exec = promisify(execFile);
 
@@ -60,6 +61,9 @@ const LANG: Record<string, string> = {
 
 export const gitCollector: Collector = {
   kind: "git",
+  scope: "self",
+  dailyGrain: true,
+  topics: SELF_TOPICS["git"],
   label: "What you build",
   area: "work",
   premise: "Every commit you have authored, across every repository on this machine — when you work, on what, and in what rhythm.",
