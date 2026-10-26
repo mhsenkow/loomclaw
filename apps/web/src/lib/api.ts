@@ -11,11 +11,26 @@ export const getMuse = () => j<{ boards: import("./types").BoardView[] }>("/api/
 export const getPersonas = () =>
   j<{ presets: { label: string; goals: string }[]; topics: string[]; active: import("./types").Persona }>("/api/personas");
 
+type PersonaReply = {
+  persona: import("./types").Persona;
+  beats: import("./types").Beat[];
+  gaps: string[];
+  framed_by_agent: number;
+};
+
 export const setPersona = (label: string, goals: string) =>
-  j<{ persona: import("./types").Persona; beats: import("./types").Beat[]; gaps: string[]; framed_by_agent: number }>("/api/persona", {
+  j<PersonaReply>("/api/persona", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ label, goals }),
+  });
+
+/** Back to the ranking the feed had before any question was asked. */
+export const clearPersona = () =>
+  j<PersonaReply>("/api/persona", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ reset: true }),
   });
 
 export const triggerSweep = () => j<unknown>("/api/sweep", { method: "POST" });

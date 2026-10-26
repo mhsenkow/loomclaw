@@ -60,6 +60,9 @@ export function CommandBar({
             aria-pressed={activePreset === p.label}
             onClick={() => onAsk(p.label, p.goals)}
             disabled={busy}
+            title={activePreset === p.label
+              ? "Ranked against this — click again to clear it"
+              : `Rank every finding against: ${p.label}`}
           >
             {p.label}
           </button>

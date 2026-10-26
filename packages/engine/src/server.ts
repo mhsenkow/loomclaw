@@ -273,8 +273,20 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/persona" && req.method === "POST") {
-    const { label, goals } = JSON.parse((await readBody(req)) || "{}");
-    persona = makePersona(String(label ?? "Custom"), String(goals ?? ""));
+    const { label, goals, reset } = JSON.parse((await readBody(req)) || "{}");
+    if (reset) {
+      /*
+       * Clearing a question is not "no ranking" — there is no such state.
+       * It is the ranking the feed had before anything was asked: the one
+       * built from the interests picked at onboarding. Rebuilt from the
+       * saved profile, so it is the same persona either way in.
+       */
+      const p = loadProfile();
+      persona = makePersona("Your interests", (p.interests ?? []).join(", "));
+      persona.weights = interestWeights(p);
+    } else {
+      persona = makePersona(String(label ?? "Custom"), String(goals ?? ""));
+    }
     emit("persona:change", persona);
     const beats = weaveProjection();
     return json(res, {

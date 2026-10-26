@@ -123,7 +123,13 @@ export default function App() {
   const applyPersona = async (label: string, goals: string) => {
     setBusy(true);
     try {
-      const r = await api.setPersona(label, goals);
+      /*
+       * Clicking the chip that is already on clears it. Re-running the same
+       * ranking is never what that click meant, and with nothing to undo it
+       * the chips were a one-way door.
+       */
+      const clearing = label === persona?.label;
+      const r = clearing ? await api.clearPersona() : await api.setPersona(label, goals);
       setPersona(r.persona);
       setBeats(r.beats);
       setGaps(r.gaps ?? []);
