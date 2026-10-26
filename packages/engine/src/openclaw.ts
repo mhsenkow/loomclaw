@@ -19,27 +19,72 @@ export interface NarrationResult {
   duration_ms: number;
 }
 
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
+
 const BIN = process.env.OPENCLAW_BIN ?? "openclaw";
 const ENABLED = process.env.LOOMCLAW_OPENCLAW !== "0";
-const TIMEOUT_S = Number(process.env.LOOMCLAW_OPENCLAW_TIMEOUT ?? 90);
+const TIMEOUT_S = Number(process.env.LOOMCLAW_OPENCLAW_TIMEOUT ?? 420);
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Narration runs against a pinned config and its own state directory.
+ *
+ * Both are required, for separate reasons found the hard way:
+ *  - The ambient config points `gateway.auth.token` at a write-only secret-store
+ *    entry. agent-exec resolves that reference before it ever selects a model,
+ *    so every run fails with GATEWAY_SECRET_REF_UNAVAILABLE regardless of
+ *    --model. A pinned config with no gateway block sidesteps it entirely.
+ *  - Without OPENCLAW_STATE_DIR the run opens ~/.openclaw/agents/main, whose
+ *    SQLite lease is held by the user's own OpenClaw process. A separate state
+ *    dir keeps this engine from contending with their main agent at all.
+ */
+const CONFIG = process.env.LOOMCLAW_OPENCLAW_CONFIG ?? resolvePath(HERE, "..", "openclaw-narrator.json");
+const STATE_DIR = process.env.LOOMCLAW_OPENCLAW_STATE ?? join(homedir(), ".loomclaw", "openclaw-state");
+const MODEL = process.env.LOOMCLAW_OPENCLAW_MODEL ?? "ollama/llama3.3:latest";
+const OLLAMA = process.env.OLLAMA_HOST ?? "http://localhost:11434";
 
 let availability: { ok: boolean; detail: string } | null = null;
 
-/** Probed once per process; the UI shows the result so the degraded path is never silent. */
+/**
+ * Readiness of the narration path: binary present, pinned config present, and
+ * the configured model actually pulled. This is a precondition check, not proof
+ * a run will succeed — the UI reports what actually happened via `narrated_via`.
+ */
 export async function openclawStatus(): Promise<{ ok: boolean; detail: string }> {
   if (availability) return availability;
   if (!ENABLED) return (availability = { ok: false, detail: "disabled via LOOMCLAW_OPENCLAW=0" });
-  const r = await run([BIN, "--version"], 15_000);
-  availability = r.code === 0
-    ? { ok: true, detail: r.stdout.trim().split("\n")[0] }
-    : { ok: false, detail: r.stderr.trim().slice(0, 200) || "openclaw not on PATH" };
-  return availability;
+
+  const v = await run([BIN, "--version"], 15_000);
+  if (v.code !== 0) return (availability = { ok: false, detail: "openclaw not on PATH" });
+
+  if (!existsSync(CONFIG)) return (availability = { ok: false, detail: `narrator config missing at ${CONFIG}` });
+
+  const [provider, ...rest] = MODEL.split("/");
+  const modelId = rest.join("/");
+  if (provider === "ollama") {
+    try {
+      const res = await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(5_000) });
+      const tags = (await res.json()) as { models?: { name: string }[] };
+      const have = (tags.models ?? []).some((m) => m.name === modelId);
+      if (!have) {
+        return (availability = { ok: false, detail: `ollama is up but ${modelId} is not pulled (ollama pull ${modelId})` });
+      }
+    } catch {
+      return (availability = { ok: false, detail: `ollama unreachable at ${OLLAMA}` });
+    }
+  }
+
+  return (availability = { ok: true, detail: `${v.stdout.trim().split("\n")[0]} · ${MODEL}` });
 }
 
-function run(argv: string[], timeoutMs: number): Promise<{ code: number; stdout: string; stderr: string }> {
+function run(argv: string[], timeoutMs: number, env?: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const [cmd, ...args] = argv;
-    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } });
     let stdout = "", stderr = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (d) => (stdout += d));
@@ -96,8 +141,18 @@ export async function narrate(ins: Insight, useAgent = true): Promise<NarrationR
   }
 
   const r = await run(
-    [BIN, "agent", "exec", "--json", "--timeout", String(TIMEOUT_S), PROMPT(ins)],
-    (TIMEOUT_S + 15) * 1000,
+    [
+      BIN, "agent", "exec", "--json",
+      "--config", CONFIG,
+      "--model", MODEL,
+      // Narration needs no tools; the lean surface keeps the system prompt from
+      // eating the context window on a local model.
+      "--local-model-lean",
+      "--timeout", String(TIMEOUT_S),
+      PROMPT(ins),
+    ],
+    (TIMEOUT_S + 20) * 1000,
+    { OPENCLAW_STATE_DIR: STATE_DIR },
   );
 
   try {

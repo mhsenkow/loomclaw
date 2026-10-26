@@ -94,16 +94,38 @@ Longitudinal ones (trend, mix shift, correlation) need history and come online
 after roughly **8 sweeps (~2 hours)** — they are comparing a series against its
 own past, and there is no honest shortcut.
 
-### Enabling OpenClaw framing
+### OpenClaw framing
 
-The engine detects the `openclaw` binary but its agent path needs a gateway token:
+Narration runs **fully locally** against Ollama. No API key, no gateway, no network.
 
-```bash
-export OPENCLAW_GATEWAY_TOKEN=...
-```
+Two things were in the way, and the engine now routes around both rather than
+asking you to weaken anything:
 
-Without it everything works; framings are generated locally and the header reads
-*Framing: local* instead of *OpenClaw · n*.
+1. **The gateway secret.** The ambient `~/.openclaw/openclaw.json` points
+   `gateway.auth.token` at a store entry that is *write-only by design*.
+   `agent exec` resolves that reference before it selects a model, so every run
+   failed with `GATEWAY_SECRET_REF_UNAVAILABLE` — even with an explicit
+   `--model`. The engine passes `--config packages/engine/openclaw-narrator.json`,
+   a pinned config with no gateway block at all. Your real config and your
+   secret store are untouched.
+2. **The agent DB lease.** Without an override the run opens
+   `~/.openclaw/agents/main`, whose SQLite lease is held by your own running
+   OpenClaw. The engine sets `OPENCLAW_STATE_DIR=~/.loomclaw/openclaw-state`, so
+   it never contends with your main agent.
+
+The model must be **tool-capable** — OpenClaw sends a tool payload even on the
+lean surface, so `gemma3:27b` is rejected outright and small-context models like
+`llama3.2` overflow on the system prompt alone.
+
+| Variable | Default | Purpose |
+| :-- | :-- | :-- |
+| `LOOMCLAW_OPENCLAW_MODEL` | `ollama/llama3.3:latest` | Narration model |
+| `LOOMCLAW_OPENCLAW_CONFIG` | `packages/engine/openclaw-narrator.json` | Pinned config |
+| `LOOMCLAW_OPENCLAW_STATE` | `~/.loomclaw/openclaw-state` | Isolated agent state |
+| `LOOMCLAW_OPENCLAW_TIMEOUT` | `420` | Seconds per narration |
+
+The header reads *OpenClaw · n* when the agent wrote n framings this sweep, and
+*Framing: local* when it fell back. Hovering says why.
 
 ### Env
 
