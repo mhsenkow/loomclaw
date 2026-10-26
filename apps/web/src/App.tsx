@@ -198,7 +198,14 @@ export default function App() {
       {!error && onboarded !== false && !loadedOnce.current && <div className="scrim">Connecting to the engine…</div>}
 
       {!error && onboarded !== false && loadedOnce.current && lens === "weave" && (
-        <Weave beats={beats} persona={persona} gaps={gaps} onZoom={zoomTo} />
+        <Weave
+          beats={beats}
+          persona={persona}
+          gaps={gaps}
+          sources={(status?.sources ?? []).filter((c) => c.available.ok).map((c) => ({ kind: c.kind, label: c.label }))}
+          sweeping={busy || !!status?.sweeping}
+          onZoom={zoomTo}
+        />
       )}
 
       {!error && onboarded !== false && loadedOnce.current && lens === "muse" && (
