@@ -5,44 +5,26 @@
 // card reports its own span; the others are pure CSS grid.
 // =================================================================
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { StoryCard } from "../components/StoryCard.tsx";
-import { DiscoverBar } from "../components/DiscoverBar.tsx";
-import { CommandBar } from "../components/CommandBar.tsx";
-import {
-  applyBrowse, loadBrowse, saveBrowse, tierOf, tierSpan,
-  type BrowseState,
-} from "../lib/browseState.ts";
+import { tierOf, tierSpan, type BrowseState } from "../lib/browseState.ts";
 import type { Beat, Persona } from "../lib/types.ts";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 export function Weave({
-  beats, persona, presets, onAsk, busy, gaps, sources, sweeping, onZoom,
+  shown, total, persona, browse, gaps, onZoom,
 }: {
-  beats: Beat[];
+  /** Already filtered and ordered by the shell, so this is a renderer. */
+  shown: Beat[];
+  total: number;
   persona: Persona | null;
-  presets: { label: string; goals: string }[];
-  onAsk: (label: string, goals: string) => void;
-  busy: boolean;
+  browse: BrowseState;
   gaps: string[];
-  sources: { kind: string; label: string }[];
-  sweeping: boolean;
   onZoom: (beat: Beat) => void;
 }) {
-  const [browse, setBrowse] = useState<BrowseState>(() => loadBrowse());
   const gridRef = useRef<HTMLUListElement>(null);
   const [spans, setSpans] = useState<Record<string, number>>({});
-
-  const update = (next: Partial<BrowseState>) =>
-    setBrowse((prev) => { const s = { ...prev, ...next }; saveBrowse(s); return s; });
-
-  const topics = useMemo(
-    () => Object.keys(persona?.weights ?? {}).map((t) => ({ id: t, label: t })),
-    [persona],
-  );
-
-  const shown = useMemo(() => applyBrowse(beats, browse), [beats, browse]);
 
   /*
    * Masonry: CSS grid cannot pack rows of uneven height on its own, so each
@@ -75,12 +57,11 @@ export function Weave({
     return () => clearTimeout(t);
   }, [browse.layout, shown]);
 
-  const focused = topics.length > 0 && topics.length < 18;
+  const focused = (Object.keys(persona?.weights ?? {}).length || 0) > 0
+    && Object.keys(persona?.weights ?? {}).length < 18;
 
   return (
     <div className="weave">
-      <DiscoverBar state={browse} onChange={update} topics={topics} sources={sources} />
-
       <div className="discover-scroll">
         <p className="lens-explainer">
           Everything that cleared statistical significance, from your own data and the world
@@ -96,7 +77,7 @@ export function Weave({
 
         {shown.length === 0 ? (
           <div className="empty">
-            {beats.length === 0
+            {total === 0
               ? "Nothing has cleared the significance floor yet. Run a sweep, or widen what you're asking about."
               : "No finding matches these filters."}
           </div>
@@ -150,18 +131,6 @@ export function Weave({
         )}
       </div>
 
-      <CommandBar
-        query={browse.query}
-        onQuery={(q) => update({ query: q })}
-        onAsk={onAsk}
-        presets={presets}
-        activePreset={persona?.label ?? null}
-        busy={busy}
-        shown={shown.length}
-        total={beats.length}
-        sources={sources.length}
-        sweeping={sweeping}
-      />
     </div>
   );
 }

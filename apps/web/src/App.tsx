@@ -2,11 +2,16 @@
 // LOOM // CLAW — one graph, two lenses
 // =================================================================
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Weave } from "./lenses/Weave.tsx";
 import { Muse } from "./lenses/Muse.tsx";
 import { Drawer } from "./components/Drawer.tsx";
 import { Onboarding, type TopicOption } from "./components/Onboarding.tsx";
+import { DiscoverBar } from "./components/DiscoverBar.tsx";
+import { CommandBar } from "./components/CommandBar.tsx";
+import {
+  applyBrowse, loadBrowse, saveBrowse, type BrowseState,
+} from "./lib/browseState.ts";
 import * as api from "./lib/api.ts";
 import type { Beat, BoardView, GraphNode, Insight, Persona, Status } from "./lib/types.ts";
 
@@ -21,6 +26,14 @@ export default function App() {
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const [topics, setTopics] = useState<TopicOption[]>([]);
   const [homeCity, setHomeCity] = useState("New York");
+  /*
+   * Browse state lives here rather than inside the Findings lens, because
+   * its two halves now sit in different parts of the shell: the filter
+   * sentence along the top, the search and counts along the bottom.
+   */
+  const [browse, setBrowse] = useState<BrowseState>(() => loadBrowse());
+  const updateBrowse = (next: Partial<BrowseState>) =>
+    setBrowse((prev) => { const s = { ...prev, ...next }; saveBrowse(s); return s; });
   const [boards, setBoards] = useState<BoardView[]>([]);
   const [persona, setPersona] = useState<Persona | null>(null);
   const [presets, setPresets] = useState<{ label: string; goals: string }[]>([]);
@@ -120,6 +133,16 @@ export default function App() {
   // Count framings standing in the weave, not just the last sweep's delta.
   const agentFramings = agentFramed;
 
+  const shown = useMemo(() => applyBrowse(beats, browse), [beats, browse]);
+  const liveSources = useMemo(
+    () => (status?.sources ?? []).filter((c) => c.available.ok),
+    [status],
+  );
+  const topicList = useMemo(
+    () => Object.keys(persona?.weights ?? {}).map((t) => ({ id: t, label: t })),
+    [persona],
+  );
+
   /** Which scope a board belongs to, from the collector list the engine reports. */
   const scopeOf = useCallback(
     (kind: string): "self" | "world" =>
@@ -127,119 +150,155 @@ export default function App() {
     [status],
   );
 
+  const LENSES: { id: Lens; glyph: string; label: string; hint: string }[] = [
+    { id: "weave", glyph: "◳", label: "Findings", hint: "Everything that cleared significance, ranked and filterable" },
+    { id: "muse", glyph: "⊞", label: "Sources", hint: "Where each finding came from, and the steps that measured it" },
+  ];
+
   return (
     <div className="app">
-      <header className="topbar">
-        <span className="wordmark">LOOM <span>//</span> CLAW</span>
-        <span className="subtitle">{lens === "weave" ? "what your data says about you" : "every source, and how each finding was measured"}</span>
+      {/*
+        The lens switch moved out of a top bar and into a vertical rail, so
+        the top can belong entirely to filtering and the bottom to counts and
+        search. Three bands, three jobs, none of them competing for the top.
+      */}
+      <nav className="rail" aria-label="Views">
+        <span className="rail-mark" title="LOOM // CLAW">L<span>//</span>C</span>
 
-        {/*
-          These were "Weave" and "Workshop", carried over from the design docs.
-          Nobody could tell what either one meant without being told, which is
-          a failure of the label rather than of the reader.
-        */}
-        <div className="lens-toggle">
-          <button
-            aria-pressed={lens === "weave"}
-            onClick={() => setLens("weave")}
-            title="Every finding, ranked and filterable"
-          >
-            Findings
-          </button>
-          <button
-            aria-pressed={lens === "muse"}
-            onClick={() => setLens("muse")}
-            title="Where each finding came from, and the steps that measured it"
-          >
-            Where it comes from
-          </button>
+        <div className="rail-lenses">
+          {LENSES.map((l) => (
+            <button
+              key={l.id}
+              className="rail-btn"
+              aria-pressed={lens === l.id}
+              onClick={() => setLens(l.id)}
+              title={l.hint}
+            >
+              <span className="rail-glyph" aria-hidden>{l.glyph}</span>
+              <span className="rail-label">{l.label}</span>
+            </button>
+          ))}
         </div>
 
-        <span className="spacer" />
-
-        {rep && (
-          <span
-            className="status-pill"
-            title={rep.sources_failed.map((f) => `${f.kind}: ${f.error}`).join("\n") || "all collectors healthy"}
+        <div className="rail-foot">
+          <button
+            className="rail-btn"
+            onClick={sweep}
+            disabled={busy}
+            title="Read every source again now"
           >
-            <span className={rep.sources_failed.length ? "dot warn" : "dot ok"} />
-            {rep.sources_ok}/{rep.sources_ok + rep.sources_failed.length} sources ·{" "}
-            {status?.observations.toLocaleString()} measurements
-          </span>
+            <span className="rail-glyph" aria-hidden>{busy ? "◌" : "↻"}</span>
+            <span className="rail-label">{busy ? "Sweeping" : "Sweep"}</span>
+          </button>
+        </div>
+      </nav>
+
+      <div className="shell">
+        <header className="topbar">
+          {lens === "weave" ? (
+            <DiscoverBar
+              state={browse}
+              onChange={updateBrowse}
+              topics={topicList}
+              sources={liveSources.map((c) => ({ kind: c.kind, label: c.label }))}
+            />
+          ) : (
+            <p className="topbar-static">
+              One board per source. Each shows what it reads, what it found this sweep, and the
+              steps that measured it — including claims since superseded.
+            </p>
+          )}
+        </header>
+
+        <main className="content">
+          {error && <div className="scrim" style={{ color: "var(--loom-error)" }}>{error}</div>}
+
+          {!error && onboarded === false && (
+            <Onboarding topics={topics} homeCity={homeCity} onDone={finishOnboarding} busy={busy} />
+          )}
+
+          {!error && onboarded !== false && !loadedOnce.current && (
+            <div className="scrim">Connecting to the engine…</div>
+          )}
+
+          {!error && onboarded !== false && loadedOnce.current && lens === "weave" && (
+            <Weave
+              shown={shown}
+              total={beats.length}
+              persona={persona}
+              browse={browse}
+              gaps={gaps}
+              onZoom={zoomTo}
+            />
+          )}
+
+          {!error && onboarded !== false && loadedOnce.current && lens === "muse" && (
+            <Muse
+              boards={boards}
+              focusBoardId={focusBoard}
+              scopeOf={scopeOf}
+              onPin={pin}
+              onOpen={(insight, node) => setOpen({ insight, node })}
+            />
+          )}
+        </main>
+
+        {onboarded !== false && !error && (
+          <footer className="footer">
+            {/* The engine's own vital signs, out of the way but never hidden. */}
+            <div className="footer-metrics">
+              {rep && (
+                <span
+                  className="metric"
+                  title={rep.sources_failed.map((f) => `${f.kind}: ${f.error}`).join("\n") || "all collectors healthy"}
+                >
+                  <span className={rep.sources_failed.length ? "dot warn" : "dot ok"} />
+                  {rep.sources_ok}/{rep.sources_ok + rep.sources_failed.length} sources
+                </span>
+              )}
+              {status && <span className="metric">{status.observations.toLocaleString()} measurements</span>}
+              <span className="metric">{beats.length} findings</span>
+              {rep && (
+                <span className="metric" title={`last sweep took ${(rep.duration_ms / 1000).toFixed(0)}s`}>
+                  {(rep.duration_ms / 1000).toFixed(0)}s sweep
+                </span>
+              )}
+              {oc && (
+                <span
+                  className="metric"
+                  title={agentFramings > 0
+                    ? `${agentFramings} framing(s) written by OpenClaw`
+                    : `${oc.detail} — framings generated locally`}
+                >
+                  <span className={agentFramings > 0 ? "dot ok" : "dot warn"} />
+                  {agentFramings > 0 ? `OpenClaw · ${agentFramings}` : "Framing: local"}
+                </span>
+              )}
+              <span className="metric" title="Every collector reads this machine only, and narration runs on local Ollama. Nothing about you is uploaded.">
+                <span className="dot ok" /> local only
+              </span>
+              <span className="metric">
+                <span className={live ? "dot live" : "dot err"} /> {live ? "streaming" : "offline"}
+              </span>
+            </div>
+
+            {lens === "weave" && (
+              <CommandBar
+                query={browse.query}
+                onQuery={(q) => updateBrowse({ query: q })}
+                onAsk={applyPersona}
+                presets={presets}
+                activePreset={persona?.label ?? null}
+                busy={busy}
+                shown={shown.length}
+                total={beats.length}
+                sources={liveSources.length}
+                sweeping={busy || !!status?.sweeping}
+              />
+            )}
+          </footer>
         )}
-
-        <span
-          className="status-pill"
-          title="Every collector reads this machine only, and narration runs on local Ollama. Nothing about you is uploaded."
-        >
-          <span className="dot ok" /> local only
-        </span>
-
-        {rep && (
-          // Weave size is the live projection, not the last sweep's delta — a
-          // sweep that re-finds a standing condition correctly pins nothing new.
-          <span className="status-pill" title={`last sweep: ${rep.insights_published} found, ${rep.pinned} newly woven`}>
-            {beats.length} in the weave
-          </span>
-        )}
-
-        {oc && (
-          // Reflect what actually happened, not just whether the binary exists:
-          // the agent can be installed and still fail to produce a framing.
-          <span
-            className="status-pill"
-            title={
-              agentFramings > 0
-                ? `${agentFramings} framing(s) written by OpenClaw`
-                : `${oc.detail} — framings generated locally`
-            }
-          >
-            <span className={agentFramings > 0 ? "dot ok" : "dot warn"} />
-            {agentFramings > 0 ? `OpenClaw · ${agentFramings}` : "Framing: local"}
-          </span>
-        )}
-
-        <span className="status-pill">
-          <span className={live ? "dot live" : "dot err"} /> {live ? "streaming" : "offline"}
-        </span>
-
-        <button className="btn" onClick={sweep} disabled={busy}>
-          {busy ? "Sweeping…" : "Sweep now"}
-        </button>
-      </header>
-
-
-      {error && <div className="scrim" style={{ color: "var(--loom-error)" }}>{error}</div>}
-
-      {!error && onboarded === false && (
-        <Onboarding topics={topics} homeCity={homeCity} onDone={finishOnboarding} busy={busy} />
-      )}
-
-      {!error && onboarded !== false && !loadedOnce.current && <div className="scrim">Connecting to the engine…</div>}
-
-      {!error && onboarded !== false && loadedOnce.current && lens === "weave" && (
-        <Weave
-          beats={beats}
-          persona={persona}
-          presets={presets}
-          onAsk={applyPersona}
-          busy={busy}
-          gaps={gaps}
-          sources={(status?.sources ?? []).filter((c) => c.available.ok).map((c) => ({ kind: c.kind, label: c.label }))}
-          sweeping={busy || !!status?.sweeping}
-          onZoom={zoomTo}
-        />
-      )}
-
-      {!error && onboarded !== false && loadedOnce.current && lens === "muse" && (
-        <Muse
-          boards={boards}
-          focusBoardId={focusBoard}
-          scopeOf={scopeOf}
-          onPin={pin}
-          onOpen={(insight, node) => setOpen({ insight, node })}
-        />
-      )}
+      </div>
 
       {open && <Drawer insight={open.insight} node={open.node} onClose={() => setOpen(null)} />}
     </div>
