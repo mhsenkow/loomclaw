@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.loomclaw/
+*.log
+.DS_Store

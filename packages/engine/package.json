@@ -1,0 +1,12 @@
+{
+  "name": "@loomclaw/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch-path=./src src/server.ts",
+    "start": "node src/server.ts",
+    "sweep": "node src/cli-sweep.ts"
+  },
+  "dependencies": { "@loomclaw/core-schema": "*" }
+}

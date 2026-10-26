@@ -1,0 +1,33 @@
+{
+  "name": "loomclaw",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LOOM // CLAW — a two-lens spatial OS for human-agent co-reasoning over live societal data",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -n engine,web -c magenta,cyan \"npm:dev:engine\" \"npm:dev:web\"",
+    "dev:engine": "npm run dev -w @loomclaw/engine",
+    "dev:web": "npm run dev -w @loomclaw/web",
+    "sweep": "npm run sweep -w @loomclaw/engine",
+    "check": "tsc --noEmit -p packages/core-schema && tsc --noEmit -p packages/engine && tsc --noEmit -p apps/web"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "vega-lite": {
+      "vega": "$vega"
+    }
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

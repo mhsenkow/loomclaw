@@ -1,0 +1,263 @@
+// =================================================================
+// The sweep — one full pass of the insight loop
+// =================================================================
+// poll every source -> record observations -> run detectors -> rank ->
+// materialize survivors as graph nodes inside their source's Board ->
+// auto-pin the best into the Weave.
+//
+// Guardrail from the design spec: agent output is never born at an
+// arbitrary canvas position. Every node here is created inside a Board
+// and anchored to an Execution Spine.
+// =================================================================
+
+import { createHash, randomUUID } from "node:crypto";
+import type {
+  ExecutionSpineStep, Insight, UnifiedGraphNode,
+} from "@loomclaw/core-schema";
+import type { GraphStore } from "./graph.ts";
+import { SOURCES, pollSource } from "./sources/registry.ts";
+import { crossCorrelations, fingerprint, runDetectors, scoreInsight } from "./detectors/index.ts";
+import { narrate, narrationStep } from "./openclaw.ts";
+
+/** Auto-pin threshold. Below this a card stays on the canvas but out of the story. */
+const PIN_SCORE = 0.22;
+/** How many top insights per sweep get sent to OpenClaw — the token circuit-breaker. */
+const NARRATE_BUDGET = Number(process.env.LOOMCLAW_NARRATE_BUDGET ?? 3);
+
+const BOARD_W = 420, BOARD_H = 300, BOARD_GAP = 60, COLS = 4;
+
+export interface SweepReport {
+  sweep_id: string;
+  started_at: string;
+  duration_ms: number;
+  sources_ok: number;
+  sources_failed: { kind: string; error: string }[];
+  observations: number;
+  insights_found: number;
+  insights_published: number;
+  pinned: number;
+  narrated_via: Record<string, number>;
+}
+
+const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+
+/** One Board per source, laid out on a stable grid so the canvas never reshuffles. */
+function ensureBoard(store: GraphStore, kind: string, label: string, premise: string, index: number): string {
+  const id = `board_${kind}`;
+  const existing = store.getNode(id);
+  const node: UnifiedGraphNode = existing ?? {
+    id,
+    parent_board_id: null,
+    kind: "board",
+    title: label,
+    spatial: {
+      x: (index % COLS) * (BOARD_W + BOARD_GAP),
+      y: Math.floor(index / COLS) * (BOARD_H + BOARD_GAP * 2),
+      width: BOARD_W,
+      height: BOARD_H,
+      z_index: 0,
+      is_collapsed: false,
+    },
+    weave: { is_pinned: false, sequence_index: null, section_group: null, layout_variant: "inline_card" },
+    execution: { status: "idle", spine_id: null, input_hash: "", token_weight: 0, last_run_at: null },
+    payload: { mime_type: "text/markdown", inline_content: premise },
+    created_at: new Date().toISOString(),
+  };
+  node.execution.status = "running";
+  node.execution.last_run_at = new Date().toISOString();
+  store.upsertNode(node);
+  return id;
+}
+
+export async function runSweep(
+  store: GraphStore,
+  emit: (event: string, data: unknown) => void = () => {},
+): Promise<SweepReport> {
+  const sweepId = randomUUID();
+  const now = new Date().toISOString();
+  const t0 = Date.now();
+
+  const report: SweepReport = {
+    sweep_id: sweepId, started_at: now, duration_ms: 0,
+    sources_ok: 0, sources_failed: [], observations: 0,
+    insights_found: 0, insights_published: 0, pinned: 0, narrated_via: {},
+  };
+
+  emit("sweep:start", { sweep_id: sweepId, sources: SOURCES.length });
+
+  // ---- 1. poll every source in parallel; one failure never stops a sweep ----
+  const results = await Promise.all(SOURCES.map((s) => pollSource(s, now)));
+  const candidates: { insight: Insight; boardId: string; spineId: string }[] = [];
+
+  for (const [i, def] of SOURCES.entries()) {
+    const res = results[i];
+    const boardId = ensureBoard(store, def.kind, def.label, def.premise, i);
+    const spineId = `spine_${def.kind}_${sweepId.slice(0, 8)}`;
+    let seq = 0;
+
+    const step = (s: Partial<ExecutionSpineStep> & Pick<ExecutionSpineStep, "tool_name" | "status" | "stdout_preview">) => {
+      const full: ExecutionSpineStep = {
+        step_id: `step_${randomUUID().slice(0, 8)}`,
+        spine_id: spineId,
+        sequence: seq++,
+        input_args: {},
+        duration_ms: 0,
+        started_at: new Date().toISOString(),
+        ...s,
+      } as ExecutionSpineStep;
+      store.addSpineStep(full);
+      emit("spine:step", full);
+      return full;
+    };
+
+    step({
+      tool_name: "loom_fetch",
+      input_args: { endpoint: `/api/source/${def.kind}`, via: "loom.ibm.io worker" },
+      stdout_preview: res.ok
+        ? `${(res.bytes / 1024).toFixed(1)} KB -> ${res.observations.length} observations`
+        : `upstream failed: ${res.error}`,
+      status: res.ok ? "success" : "failed",
+      duration_ms: res.duration_ms,
+    });
+
+    const board = store.getNode(boardId)!;
+    board.execution.spine_id = spineId;
+
+    if (!res.ok) {
+      report.sources_failed.push({ kind: def.kind, error: res.error ?? "unknown" });
+      board.execution.status = "error";
+      store.upsertNode(board);
+      continue;
+    }
+
+    report.sources_ok++;
+    report.observations += res.observations.length;
+
+    // ---- 2. detectors run against history BEFORE the new rows land ----
+    const td = Date.now();
+    const found = runDetectors(store, def.kind, res.observations, now);
+    store.recordObservations(res.observations);
+
+    step({
+      tool_name: "detector_scan",
+      input_args: {
+        detectors: ["zscore_outlier", "concentration", "trend_break", "distribution_shift"],
+        observations: res.observations.length,
+      },
+      stdout_preview: found.length
+        ? found.map((f) => `${f.detector}: effect ${f.statistic.effect_size.toFixed(1)}, p=${f.statistic.p_value.toExponential(1)}`).join("\n")
+        : "no claim cleared the significance floor",
+      status: "success",
+      duration_ms: Date.now() - td,
+    });
+
+    report.insights_found += found.length;
+    for (const insight of found) candidates.push({ insight, boardId, spineId });
+
+    board.execution.status = found.length ? "resolved" : "idle";
+    board.execution.input_hash = hash(JSON.stringify(res.observations.map((o) => [o.metric, o.dim, o.value])));
+    board.execution.token_weight = Math.round(res.bytes / 4);
+    store.upsertNode(board);
+    emit("node:update", board);
+  }
+
+  // ---- 3. cross-source correlations, on their own Board ----
+  const xBoard = ensureBoard(store, "_cross", "Cross-source correlation", "Relationships that only appear when independent feeds are aligned on the same clock.", SOURCES.length);
+  const xSpine = `spine_cross_${sweepId.slice(0, 8)}`;
+  const tx = Date.now();
+  const xFound = crossCorrelations(store, now);
+  store.addSpineStep({
+    step_id: `step_${randomUUID().slice(0, 8)}`,
+    spine_id: xSpine, sequence: 0, tool_name: "cross_correlation_scan",
+    input_args: { pairs_tested: "all scalar series across distinct sources", min_r: 0.8 },
+    stdout_preview: xFound.length ? `${xFound.length} pair(s) above threshold` : "no pair cleared r>=0.8 at p<0.01",
+    status: "success", duration_ms: Date.now() - tx, started_at: new Date().toISOString(),
+  });
+  report.insights_found += xFound.length;
+  for (const insight of xFound) candidates.push({ insight, boardId: xBoard, spineId: xSpine });
+  const xb = store.getNode(xBoard)!;
+  xb.execution.status = xFound.length ? "resolved" : "idle";
+  xb.execution.spine_id = xSpine;
+  store.upsertNode(xb);
+
+  // ---- 4. score, de-duplicate, rank ----
+  for (const c of candidates) {
+    const times = store.noteFingerprint(fingerprint(c.insight), now);
+    c.insight.score = scoreInsight(c.insight, times);
+  }
+  candidates.sort((a, b) => b.insight.score - a.insight.score);
+
+  // ---- 5. frame every publishable insight; only the top few cost tokens ----
+  // Local framing is free and instant, so the Weave is never truncated to the
+  // agent budget — the budget only decides which claims get an agent's read.
+  const narrations = new Map<string, string>();
+  const publishable = candidates.filter((c) => c.insight.score >= PIN_SCORE);
+  for (const [i, c] of publishable.entries()) {
+    const res = await narrate(c.insight, i < NARRATE_BUDGET);
+    narrations.set(c.insight.id, res.text);
+    report.narrated_via[res.via] = (report.narrated_via[res.via] ?? 0) + 1;
+    const stepRec = narrationStep(c.spineId, 90 + i, c.insight, res);
+    store.addSpineStep(stepRec);
+    emit("spine:step", stepRec);
+  }
+
+  // ---- 6. materialize as artifact cards inside their Board ----
+  let pinIndex = store.nextWeaveIndex();
+  for (const [i, c] of candidates.entries()) {
+    const { insight, boardId } = c;
+    const shouldPin = insight.score >= PIN_SCORE && narrations.has(insight.id);
+
+    const node: UnifiedGraphNode = {
+      id: insight.id,
+      parent_board_id: boardId,
+      kind: "output_artifact",
+      title: insight.headline,
+      spatial: {
+        x: 24 + (i % 2) * 190,
+        y: 92 + Math.floor(i / 2) * 96,
+        width: 180, height: 88, z_index: 1, is_collapsed: false,
+      },
+      weave: {
+        is_pinned: shouldPin,
+        sequence_index: shouldPin ? pinIndex++ : null,
+        section_group: insight.detector,
+        layout_variant: insight.detector === "cross_correlation" ? "side_by_side" : "full_bleed",
+        narrative_annotation: narrations.get(insight.id),
+      },
+      execution: {
+        status: "resolved",
+        spine_id: c.spineId,
+        input_hash: hash(fingerprint(insight)),
+        token_weight: Math.round(insight.headline.length / 4),
+        last_run_at: now,
+      },
+      payload: {
+        mime_type: "application/json",
+        inline_content: JSON.stringify(insight),
+        schema_summary: {
+          detector: insight.detector,
+          statistic: insight.statistic.name,
+          p_value: insight.statistic.p_value.toExponential(2),
+          n: String(insight.statistic.n),
+        },
+      },
+      created_at: now,
+    };
+
+    store.upsertNode(node);
+    store.upsertEdge({
+      id: `edge_${boardId}_${insight.id}`,
+      source_node_id: boardId,
+      target_node_id: insight.id,
+      // High-cost LLM edge: stale, not auto-rerun. The design spec's runaway guardrail.
+      auto_propagate: false,
+    });
+    report.insights_published++;
+    if (shouldPin) report.pinned++;
+    emit("node:update", node);
+  }
+
+  report.duration_ms = Date.now() - t0;
+  emit("sweep:done", report);
+  return report;
+}

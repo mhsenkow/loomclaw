@@ -1,0 +1,28 @@
+const j = async <T>(url: string, init?: RequestInit): Promise<T> => {
+  const r = await fetch(url, init);
+  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
+  return r.json() as Promise<T>;
+};
+
+export const getStatus = () => j<import("./types").Status>("/api/status");
+export const getWeave = () =>
+  j<{ persona: import("./types").Persona; beats: import("./types").Beat[]; gaps: string[] }>("/api/weave");
+export const getMuse = () => j<{ boards: import("./types").BoardView[] }>("/api/muse");
+export const getPersonas = () =>
+  j<{ presets: { label: string; goals: string }[]; topics: string[]; active: import("./types").Persona }>("/api/personas");
+
+export const setPersona = (label: string, goals: string) =>
+  j<{ persona: import("./types").Persona; beats: import("./types").Beat[]; gaps: string[] }>("/api/persona", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label, goals }),
+  });
+
+export const triggerSweep = () => j<unknown>("/api/sweep", { method: "POST" });
+
+export const setPin = (id: string, pinned: boolean) =>
+  j<unknown>("/api/pin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id, pinned }),
+  });
