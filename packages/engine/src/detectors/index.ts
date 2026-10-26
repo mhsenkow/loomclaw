@@ -83,6 +83,12 @@ const COUNT_UNITS = new Set([
   "messages", "stories", "papers", "requests", "alerts", "filings", "recalls",
 ]);
 
+/**
+ * Verb agreement for a metric phrase. "Your sleep hours is falling" reads as
+ * a bug even when the statistic behind it is sound.
+ */
+const plural = (metric: string) => (/s$/.test(phrase(metric)) ? "are" : "is");
+
 /** Metric name -> readable phrase, so headlines don't read like column names. */
 const phrase = (metric: string) =>
   metric.replace(/^count_by_/, "").replace(/^(max|mean|total|amount)_/, "").replace(/_by_\w+$/, "").replace(/_/g, " ");
@@ -244,8 +250,8 @@ function levelShifts(store: GraphStore, def: Collector, current: Observation[], 
       source_kind: def.kind,
       metric: o.metric,
       headline:
-        `Your ${phrase(o.metric)} is ${Math.abs(z).toFixed(1)}σ ${dir} your own baseline — ` +
-        `${fmt(o.value)}${unit ? " " + unit : ""} vs a ${prior.length}-sweep median of ${fmt(base)}`,
+        `Your ${phrase(o.metric)} ${plural(o.metric)} ${Math.abs(z).toFixed(1)}σ ${dir} your own baseline — ` +
+        `${fmt(o.value)}${unit ? " " + unit : ""} vs a ${prior.length}-day median of ${fmt(base)}`,
       statistic: { name: `robust z vs own history (MAD${scaleNote})`, value: z, effect_size: Math.abs(z), p_value: p, n: prior.length },
       evidence: {
         points: hist.slice(-60).map((h) => ({ label: h.observed_at, value: h.value })),
@@ -290,9 +296,9 @@ function trends(store: GraphStore, def: Collector, current: Observation[], now: 
       source_kind: def.kind,
       metric: o.metric,
       headline:
-        `Your ${phrase(o.metric)} is ${dir} steadily — ` +
-        `${fmt(fit.slope)}${unit ? " " + unit : ""} per sweep (${pctPerSweep >= 0 ? "+" : ""}${pctPerSweep.toFixed(1)}%), ` +
-        `R²=${fit.r2.toFixed(2)} over ${fit.n} sweeps`,
+        `Your ${phrase(o.metric)} ${plural(o.metric)} ${dir} steadily — ` +
+        `${fmt(fit.slope)}${unit ? " " + unit : ""} per day (${pctPerSweep >= 0 ? "+" : ""}${pctPerSweep.toFixed(1)}%), ` +
+        `R²=${fit.r2.toFixed(2)} over ${fit.n} days`,
       statistic: { name: "OLS slope t-statistic", value: fit.slope, effect_size: Math.abs(fit.t), p_value: p, n: fit.n },
       evidence: {
         points: hist.map((h) => ({ label: h.observed_at, value: h.value })),
@@ -434,7 +440,7 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
         metric: `${a.metric}+${b.metric}`,
         headline:
           `${da?.label ?? a.kind} ${phrase(a.metric)} and ${db?.label ?? b.kind} ${phrase(b.metric)} ` +
-          `move together: sweep-to-sweep changes correlate at r=${r.toFixed(2)} over ${n} intervals ` +
+          `move together: day-to-day changes correlate at r=${r.toFixed(2)} over ${n} days ` +
           `(survives FDR correction across ${tested.length} pairs tested)`,
         statistic: {
           name: `Pearson r on first differences (Fisher z, BH-FDR ${CORR_FDR} over ${tested.length} tests)`,

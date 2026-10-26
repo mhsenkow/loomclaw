@@ -39,11 +39,34 @@ Every collector reads something already on this machine.
 | **Where your attention goes** | macOS `knowledgeC.db` | which apps hold you, for how long, at what hour |
 | **How you work with AI** | `~/.claude/projects` *(metadata only)* | when you reach for an agent, on which projects |
 | **Where you read** | Chrome history *(domains only)* | **off by default** — see below |
+| **Your body** | Apple Health export | sleep, steps, resting heart rate, HRV |
 | **The air where you live** | Loom worker, filtered to your city | the one environmental measure acting on you directly |
 
 Most repositories here are forks of other people's work, so commits are filtered
 to your identity — without that this would measure strangers. Identities come from
 `git config`, overridable with `LOOMCLAW_ME`.
+
+### Getting your Apple Health data in
+
+On your iPhone: **Health → your photo (top right) → Export All Health Data**.
+It takes a few minutes and produces `export.zip`. AirDrop it to this Mac, or save
+it to iCloud Drive, and leave it in `~/Downloads` — the collector finds it there
+(also Desktop, Documents, or iCloud Downloads), unzips it itself, and reads
+`export.xml`. Point `LOOMCLAW_HEALTH_EXPORT` at it if you keep it elsewhere.
+
+Three things that file does to a naive reader, and how this handles them:
+
+- **It is huge** — routinely gigabytes. It is streamed, never loaded into memory,
+  and the parsed result is cached against the file's size and mtime, so only a
+  fresh export re-parses.
+- **Your iPhone and Watch both count the same steps.** Summing every record
+  double-counts the day. The day's value is the best-informed single device, and
+  overlapping sleep intervals are unioned — otherwise two devices recording one
+  night produce sixteen hours of sleep.
+- **Sleep crosses midnight.** A night is attributed to the morning you woke on,
+  not the evening you lay down.
+
+Re-export whenever you want fresher data; nothing syncs on its own.
 
 **Browsing is opt-in** (`LOOMCLAW_BROWSING=1`). Browsing history is the most
 revealing record on the machine, and a top-domain card is exactly the kind of
@@ -145,6 +168,7 @@ prompt. See `packages/engine/OPENCLAW-NARRATOR.md`.
 | `LOOMCLAW_ME` | from `git config` | your commit identities, comma-separated |
 | `LOOMCLAW_CODE_ROOT` | `~` | where to look for repositories |
 | `LOOMCLAW_WINDOW_DAYS` | `180` | how far back collectors reach |
+| `LOOMCLAW_HEALTH_EXPORT` | auto-discovered | path to `export.zip`, the unzipped folder, or `export.xml` |
 | `LOOMCLAW_HOME_CITY` | `New York` | city for the air-quality collector |
 | `LOOMCLAW_BROWSING` | unset | `1` enables the browsing collector |
 | `LOOMCLAW_OPENCLAW_MODEL` | `ollama/qwen2.5:7b` | narration model |
@@ -158,7 +182,7 @@ prompt. See `packages/engine/OPENCLAW-NARRATOR.md`.
 ```
 packages/core-schema   UnifiedGraphNode, GraphThreadEdge, ExecutionSpineStep, Insight
 packages/engine
-  collectors/          git · screentime · ai · browsing · environment
+  collectors/          git · screentime · ai · health · browsing · environment
   detectors/stats.ts   MAD, transforms, Poisson, OLS, Pearson, Gini, χ², Fisher z, BH-FDR
   detectors/index.ts   the five detectors, scoring, Vega-Lite specs
   interests.ts         goals -> topic weights -> ranking
@@ -171,6 +195,8 @@ apps/web               Weave lens, Workshop lens, micro-charts, drawer
 ## Known limits
 
 - Screen Time needs Full Disk Access for your terminal, or that collector is skipped.
+- Apple Health is a manual export, so it is a snapshot: it does not refresh until
+  you export again.
 - Topic routing is a keyword lexicon, not a classifier; an unmatched goal falls back
   to statistical strength and says so.
 - Correlation between two records of you is not causation, and `cross_correlation`

@@ -4,6 +4,7 @@ import { screenTimeCollector } from "./screentime.ts";
 import { aiCollector } from "./ai.ts";
 import { browsingCollector } from "./browsing.ts";
 import { environmentCollector } from "./environment.ts";
+import { healthCollector } from "./health.ts";
 
 export * from "./types.ts";
 
@@ -13,6 +14,7 @@ export const COLLECTORS: Collector[] = [
   screenTimeCollector,
   aiCollector,
   browsingCollector,
+  healthCollector,
   environmentCollector,
 ];
 

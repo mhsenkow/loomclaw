@@ -31,6 +31,7 @@ export const SOURCE_TOPICS: Record<string, Partial<Record<Topic, number>>> = {
   screentime:  { attention: 1.0, focus: 0.95, balance: 0.8, rhythm: 0.7 },
   ai:          { learning: 1.0, output: 0.7, projects: 0.6, rhythm: 0.5 },
   browsing:    { attention: 1.0, focus: 0.8, learning: 0.5 },
+  health:      { wellbeing: 1.0, balance: 0.9, rhythm: 0.5, focus: 0.4 },
   environment: { wellbeing: 1.0, balance: 0.4 },
 };
 
@@ -43,10 +44,10 @@ const LEXICON: Record<Topic, string[]> = {
   output:     ["output", "productive", "productivity", "ship", "shipping", "build", "built", "building", "commit", "work done", "getting done", "accomplish", "deliver"],
   rhythm:     ["rhythm", "when", "time of day", "schedule", "morning", "night", "late", "hour", "pattern", "routine", "consistent", "cadence", "best work"],
   focus:      ["focus", "focused", "deep work", "distract", "distracted", "interrupt", "context switch", "switching", "concentration", "scattered", "flow"],
-  balance:    ["balance", "burnout", "burning out", "overwork", "overworking", "rest", "break", "weekend", "too much", "exhaust", "tired", "sustainable", "health of"],
+  balance:    ["balance", "burnout", "burning out", "overwork", "overworking", "rest", "rested", "break", "weekend", "too much", "exhaust", "tired", "sustainable", "health of", "run down", "recover"],
   learning:   ["learn", "learning", "ai", "agent", "claude", "study", "skill", "improve", "growth", "research", "explore"],
   projects:   ["project", "projects", "repo", "repository", "what am i", "working on", "side project", "spread", "juggling", "scattered across"],
-  wellbeing:  ["wellbeing", "well-being", "health", "healthy", "air", "sleep", "body", "environment", "breathing", "feel"],
+  wellbeing:  ["wellbeing", "well-being", "health", "healthy", "air", "sleep", "sleeping", "slept", "body", "environment", "breathing", "feel", "heart", "resting", "steps", "walk", "exercise", "fitness", "recovery", "hrv"],
   attention:  ["attention", "screen time", "screen", "app", "browsing", "scroll", "doomscroll", "waste", "spending time", "where my time", "where does my time"],
 };
 
@@ -73,6 +74,7 @@ export const PRESET_PERSONAS: { label: string; goals: string }[] = [
   { label: "Where is my attention going?", goals: "Where my screen time and attention actually go, what distracts me, how much I context-switch." },
   { label: "Am I overworking?", goals: "Whether I'm burning out — late nights, weekend work, whether my rest is sustainable." },
   { label: "What am I actually building?", goals: "Which projects and repositories I'm spending myself on, and how scattered I am across them." },
+  { label: "Does my sleep affect my work?", goals: "Whether my sleep, resting heart rate and rest show up in how much I ship and how I spend my attention." },
   { label: "Everything, ranked by strength", goals: "" },
 ];
 
