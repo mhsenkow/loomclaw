@@ -16,7 +16,7 @@ import { HOURS, daily, totals } from "./types.ts";
 
 const ROOT = join(homedir(), ".claude", "projects");
 
-/** "-Users-powerox-loomclaw" -> "loomclaw" */
+/** Claude Code encodes a project path as a slug: "-Users-me-myproject" -> "myproject". */
 const projectName = (dir: string) => dir.split("-").filter(Boolean).pop() ?? dir;
 
 export const aiCollector: Collector = {
