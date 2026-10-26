@@ -18,6 +18,7 @@ import type { GraphStore } from "./graph.ts";
 import { COLLECTOR_BY_KIND, WINDOW_DAYS, activeCollectors } from "./collectors/index.ts";
 import { crossCorrelations, fingerprint, meritOf, runDetectors, scoreInsight } from "./detectors/index.ts";
 import { narrate, narrationStep } from "./openclaw.ts";
+import { anchorFor, userAnchors } from "./anchor.ts";
 
 /**
  * Publication threshold, applied to *merit* rather than score. A claim is
@@ -273,7 +274,11 @@ export async function runSweep(
   store.upsertNode(xb);
 
   // ---- 4. score, de-duplicate, rank ----
+  // Built once per sweep: the same anchor set applies to every finding.
+  const anchors = userAnchors(store);
   for (const c of candidates) {
+    const a = anchorFor(c.insight, anchors);
+    if (a) c.insight.anchor = a;
     const fp = fingerprint(c.insight);
     const times = store.noteFingerprint(fp, now);
     c.insight.merit = meritOf(c.insight);

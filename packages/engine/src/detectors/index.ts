@@ -11,6 +11,7 @@
 
 import type { DetectorKind, Insight } from "@loomclaw/core-schema";
 import type { GraphStore, Observation } from "../graph.ts";
+import { CHART_FAMILY, CHART_LABEL, build, chooseKind, type ChartFamily, type Pt } from "./charts.ts";
 import { COLLECTOR_BY_KIND, type Collector } from "../collectors/index.ts";
 import {
   benjaminiHochberg, correlationP, gini, isCountLike, isInformative, linearTrend,
@@ -19,6 +20,23 @@ import {
 } from "./stats.ts";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+/**
+ * Pick a chart for this evidence, build it, and record what was picked.
+ * Centralised so no detector can quietly hard-code a shape again — which
+ * is how twenty-one of twenty-four findings ended up as the same bar.
+ */
+function chart(
+  family: ChartFamily,
+  pts: Pt[],
+  o: { unit?: string; title?: string; baseline?: number; baselinePts?: Pt[]; fit?: { slope: number; intercept: number }; summable?: boolean; force?: Parameters<typeof build>[0] },
+) {
+  const kind = o.force ?? chooseKind(pts, { summable: o.summable ?? false, family, span: pts.length });
+  return {
+    vega_spec: build(kind, pts, o),
+    chart: { kind, family: CHART_FAMILY[kind], label: CHART_LABEL[kind] },
+  };
+}
 
 /** Minimum history before a longitudinal detector is allowed to speak. */
 const MIN_HISTORY = 8;
@@ -81,6 +99,7 @@ const unitOf = (def: Collector | undefined, metric: string) => def?.units?.[metr
 const COUNT_UNITS = new Set([
   "commits", "sessions", "visits", "switches", "events", "repos", "domains",
   "messages", "stories", "papers", "requests", "alerts", "filings", "recalls",
+  "quakes", "products", "inspections", "violations", "vehicles",
 ]);
 
 /**
@@ -162,7 +181,10 @@ function crossSectionalOutliers(def: Collector, current: Observation[], now: str
         baseline: [{ label: "peer median", value: med }],
         unit,
       },
-      vega_spec: barSpec(ranked.slice(0, 12).map((o) => ({ label: o.dim, value: o.value })), med, unit, phrase(metric)),
+      ...chart("comparison", ranked.slice(0, 12).map((o) => ({ label: o.dim, value: o.value })), {
+        unit, title: phrase(metric), baseline: med,
+        summable: COUNT_UNITS.has(unit) || unit === "USD" || unit === "lines" || unit === "hours",
+      }),
       merit: 0,
       score: 0,
       detected_at: now,
@@ -219,7 +241,9 @@ function concentration(def: Collector, current: Observation[], now: string): Ins
         points: ranked.slice(0, 12).map((o) => ({ label: o.dim, value: o.value })),
         unit,
       },
-      vega_spec: lorenzSpec(values, phrase(metric)),
+      ...chart("composition", ranked.slice(0, 12).map((o) => ({ label: o.dim, value: o.value })), {
+        unit, title: phrase(metric),
+      }),
       merit: 0,
       score: 0,
       detected_at: now,
@@ -266,7 +290,10 @@ function levelShifts(store: GraphStore, def: Collector, current: Observation[], 
         baseline: [{ label: "median", value: base }],
         unit,
       },
-      vega_spec: lineSpec(hist.slice(-60).map((h) => ({ label: h.observed_at, value: h.value })), base, unit, phrase(o.metric)),
+      ...chart("trend", hist.slice(-90).map((h) => ({ label: h.observed_at, value: h.value })), {
+        unit, title: phrase(o.metric), baseline: base,
+        summable: COUNT_UNITS.has(unit),
+      }),
       merit: 0,
       score: 0,
       detected_at: now,
@@ -314,7 +341,9 @@ function trends(store: GraphStore, def: Collector, current: Observation[], now: 
         points: hist.map((h) => ({ label: h.observed_at, value: h.value })),
         unit,
       },
-      vega_spec: trendSpec(hist.map((h) => ({ label: h.observed_at, value: h.value })), fit, unit, phrase(o.metric)),
+      ...chart("trend", hist.map((h) => ({ label: h.observed_at, value: h.value })), {
+        unit, title: phrase(o.metric), fit, force: "trendFit",
+      }),
       merit: 0,
       score: 0,
       detected_at: now,
@@ -393,7 +422,11 @@ function distributionShift(store: GraphStore, def: Collector, current: Observati
         baseline: movers.map((m) => ({ label: m.label, value: m.exp })),
         unit: unitOf(def, metric),
       },
-      vega_spec: obsVsExpSpec(movers, phrase(metric)),
+      ...chart("comparison", movers.map((m) => ({ label: m.label, value: m.obs })), {
+        unit: unitOf(def, metric), title: phrase(metric),
+        baselinePts: movers.map((m) => ({ label: m.label, value: m.exp })),
+        force: movers.length <= 6 ? "slope" : "dumbbell",
+      }),
       merit: 0,
       score: 0,
       detected_at: now,
@@ -479,10 +512,12 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
           points: diff(a.values.slice(-n)).map((v, k) => ({ label: a.stamps.slice(-n).slice(1)[k], value: v })),
           baseline: diff(b.values.slice(-n)).map((v, k) => ({ label: b.stamps.slice(-n).slice(1)[k], value: v })),
         },
-        vega_spec: scatterSpec(
-          diff(a.values.slice(-n)), diff(b.values.slice(-n)),
-          `Δ ${a.kind} ${phrase(a.metric)}`, `Δ ${b.kind} ${phrase(b.metric)}`,
-        ),
+        ...chart("relationship",
+          diff(a.values.slice(-n)).map((v, k) => ({ label: String(k), value: v })), {
+            title: `Δ ${a.kind} ${phrase(a.metric)}`,
+            unit: `Δ ${b.kind} ${phrase(b.metric)}`,
+            baselinePts: diff(b.values.slice(-n)).map((v, k) => ({ label: String(k), value: v })),
+          }),
         merit: 0,
       score: 0,
         detected_at: now,
@@ -589,155 +624,4 @@ export function scoreInsight(ins: Insight, timesSeen: number): number {
 export function fingerprint(ins: Insight): string {
   const top = ins.evidence.points.slice(0, 3).map((p) => p.label).join("|");
   return `${ins.detector}:${ins.source_kind}:${ins.statistic.name}:${top}`;
-}
-
-// =================================================================
-// Vega-Lite specs — charts are part of the claim, not decoration
-// =================================================================
-
-const BASE = {
-  $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-  background: "transparent",
-  config: {
-    axis: { labelColor: "#9e9eac", titleColor: "#9e9eac", gridColor: "#2a2a30", domainColor: "#2a2a30", labelFontSize: 10, titleFontSize: 10 },
-    legend: { labelColor: "#9e9eac", titleColor: "#9e9eac" },
-    view: { stroke: "transparent" },
-  },
-};
-
-const ACCENT = "#6a5ce0";
-const ACCENT_DIM = "#b4adff";
-const WARN = "#ffb020";
-
-function barSpec(points: { label: string; value: number }[], baseline: number, unit: string, title: string) {
-  return {
-    ...BASE,
-    data: { values: points.map((p, i) => ({ ...p, rank: i })) },
-    layer: [
-      {
-        mark: { type: "bar", cornerRadiusEnd: 2 },
-        encoding: {
-          y: { field: "label", type: "nominal", sort: { field: "rank" }, axis: { title: null, labelLimit: 150 } },
-          x: { field: "value", type: "quantitative", axis: { title: unit || title } },
-          color: { condition: { test: "datum.rank === 0", value: WARN }, value: ACCENT },
-        },
-      },
-      {
-        mark: { type: "rule", color: "#9e9eac", strokeDash: [4, 3] },
-        encoding: { x: { datum: baseline } },
-      },
-    ],
-  };
-}
-
-function lineSpec(points: { label: string; value: number }[], baseline: number, unit: string, title: string) {
-  return {
-    ...BASE,
-    data: { values: points },
-    layer: [
-      {
-        mark: { type: "line", color: ACCENT, point: { filled: true, size: 24, color: ACCENT } },
-        encoding: {
-          x: { field: "label", type: "temporal", axis: { title: null, format: "%b %d %H:%M" } },
-          y: { field: "value", type: "quantitative", axis: { title: unit || title }, scale: { zero: false } },
-        },
-      },
-      { mark: { type: "rule", color: "#9e9eac", strokeDash: [4, 3] }, encoding: { y: { datum: baseline } } },
-    ],
-  };
-}
-
-function trendSpec(points: { label: string; value: number }[], fit: { slope: number; intercept: number }, unit: string, title: string) {
-  return {
-    ...BASE,
-    data: { values: points.map((p, i) => ({ ...p, fitted: fit.intercept + fit.slope * i })) },
-    layer: [
-      {
-        mark: { type: "point", filled: true, size: 28, color: ACCENT },
-        encoding: {
-          x: { field: "label", type: "temporal", axis: { title: null, format: "%b %d %H:%M" } },
-          y: { field: "value", type: "quantitative", axis: { title: unit || title }, scale: { zero: false } },
-        },
-      },
-      {
-        mark: { type: "line", color: WARN, strokeWidth: 2 },
-        encoding: { x: { field: "label", type: "temporal" }, y: { field: "fitted", type: "quantitative" } },
-      },
-    ],
-  };
-}
-
-function obsVsExpSpec(movers: { label: string; obs: number; exp: number }[], title: string) {
-  const values = movers.flatMap((m) => [
-    { label: m.label, kind: "observed", value: m.obs },
-    { label: m.label, kind: "expected", value: m.exp },
-  ]);
-  return {
-    ...BASE,
-    data: { values },
-    mark: { type: "bar", cornerRadiusEnd: 2 },
-    encoding: {
-      y: { field: "label", type: "nominal", axis: { title: null, labelLimit: 150 } },
-      x: { field: "value", type: "quantitative", axis: { title: title } },
-      yOffset: { field: "kind" },
-      color: {
-        field: "kind",
-        type: "nominal",
-        scale: { domain: ["observed", "expected"], range: [ACCENT, "#5a5a66"] },
-        legend: { title: null, orient: "top" },
-      },
-    },
-  };
-}
-
-function lorenzSpec(values: number[], title: string) {
-  const xs = [...values].sort((a, b) => a - b);
-  const total = xs.reduce((a, b) => a + b, 0) || 1;
-  let cum = 0;
-  const curve = [{ pop: 0, share: 0, equality: 0 }];
-  xs.forEach((v, i) => {
-    cum += v;
-    curve.push({ pop: ((i + 1) / xs.length) * 100, share: (cum / total) * 100, equality: ((i + 1) / xs.length) * 100 });
-  });
-  return {
-    ...BASE,
-    data: { values: curve },
-    layer: [
-      {
-        mark: { type: "line", color: "#5a5a66", strokeDash: [4, 3] },
-        encoding: {
-          x: { field: "pop", type: "quantitative", axis: { title: `% of ${title} categories` } },
-          y: { field: "equality", type: "quantitative", axis: { title: "% of total" } },
-        },
-      },
-      {
-        mark: { type: "area", color: ACCENT, opacity: 0.25, line: { color: ACCENT, strokeWidth: 2 } },
-        encoding: {
-          x: { field: "pop", type: "quantitative" },
-          y: { field: "share", type: "quantitative" },
-        },
-      },
-    ],
-  };
-}
-
-function scatterSpec(a: number[], b: number[], xTitle: string, yTitle: string) {
-  return {
-    ...BASE,
-    data: { values: a.map((v, i) => ({ a: v, b: b[i] })) },
-    layer: [
-      {
-        mark: { type: "point", filled: true, size: 45, color: ACCENT, opacity: 0.75 },
-        encoding: {
-          x: { field: "a", type: "quantitative", axis: { title: xTitle }, scale: { zero: false } },
-          y: { field: "b", type: "quantitative", axis: { title: yTitle }, scale: { zero: false } },
-        },
-      },
-      {
-        mark: { type: "line", color: ACCENT_DIM, strokeWidth: 1.5 },
-        transform: [{ regression: "b", on: "a" }],
-        encoding: { x: { field: "a", type: "quantitative" }, y: { field: "b", type: "quantitative" } },
-      },
-    ],
-  };
 }

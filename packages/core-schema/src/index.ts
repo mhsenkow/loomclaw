@@ -138,8 +138,24 @@ export interface Insight {
     n: number;
   };
   evidence: InsightEvidence;
+  /**
+   * Where the reader sits inside this finding's ranking, when they appear in
+   * it at all. This is what turns a fact about the world into one about them:
+   * "Mumbai leads air quality" becomes "and New York, where you live, is 7th
+   * of 12". Absent when they are not in the ranking, or already lead it.
+   */
+  anchor?: {
+    label: string;
+    rank: number;
+    of: number;
+    value: number;
+    vsTypical: number | null;
+    because: string;
+  };
   /** Vega-Lite spec rendering the evidence. */
   vega_spec: Record<string, unknown>;
+  /** Which chart kind was chosen, and the analytical family it belongs to. */
+  chart?: { kind: string; family: string; label: string };
   /**
    * 0–1 statistical quality alone: effect size, confidence, sample adequacy and
    * detector depth. Decides whether a claim is worth publishing at all.

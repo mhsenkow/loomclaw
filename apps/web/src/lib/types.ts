@@ -6,7 +6,9 @@ export interface Insight {
   headline: string;
   statistic: { name: string; value: number; effect_size: number; p_value: number; n: number };
   evidence: { points: { label: string; value: number }[]; baseline?: { label: string; value: number }[]; unit?: string };
+  anchor?: { label: string; rank: number; of: number; value: number; vsTypical: number | null; because: string };
   vega_spec: Record<string, unknown>;
+  chart?: { kind: string; family: string; label: string };
   merit: number;
   score: number;
   detected_at: string;

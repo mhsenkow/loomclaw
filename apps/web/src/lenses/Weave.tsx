@@ -8,7 +8,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StoryCard } from "../components/StoryCard.tsx";
 import { DiscoverBar } from "../components/DiscoverBar.tsx";
-import { DiscoverFooter } from "../components/DiscoverFooter.tsx";
+import { CommandBar } from "../components/CommandBar.tsx";
 import {
   applyBrowse, loadBrowse, saveBrowse, tierOf, tierSpan,
   type BrowseState,
@@ -18,10 +18,13 @@ import type { Beat, Persona } from "../lib/types.ts";
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 export function Weave({
-  beats, persona, gaps, sources, sweeping, onZoom,
+  beats, persona, presets, onAsk, busy, gaps, sources, sweeping, onZoom,
 }: {
   beats: Beat[];
   persona: Persona | null;
+  presets: { label: string; goals: string }[];
+  onAsk: (label: string, goals: string) => void;
+  busy: boolean;
   gaps: string[];
   sources: { kind: string; label: string }[];
   sweeping: boolean;
@@ -147,14 +150,17 @@ export function Weave({
         )}
       </div>
 
-      <DiscoverFooter
+      <CommandBar
+        query={browse.query}
+        onQuery={(q) => update({ query: q })}
+        onAsk={onAsk}
+        presets={presets}
+        activePreset={persona?.label ?? null}
+        busy={busy}
         shown={shown.length}
         total={beats.length}
         sources={sources.length}
         sweeping={sweeping}
-        query={browse.query}
-        onQuery={(q) => update({ query: q })}
-        onMethod={() => shown[0] && onZoom(shown[0])}
       />
     </div>
   );

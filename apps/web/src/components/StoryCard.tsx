@@ -16,6 +16,11 @@ const SCOPE_LABEL: Record<string, string> = { self: "you", world: "world", both:
 
 const PREVIEW_HEIGHT: Record<Tier, number> = { lead: 230, wide: 180, standard: 150, brief: 110 };
 
+const ordinal = (n: number) => {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+};
+
 const ago = (iso: string) => {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 60) return `${mins}m`;
@@ -49,7 +54,11 @@ export function StoryCard({
       {isFeed && (
         <div className="discover-story-preview">
           <CardControls insight={insight} height={height} />
-          <span className="discover-story-kind">{DETECTOR_LABEL[insight.detector]}</span>
+          <span className="discover-story-kind">
+            {insight.chart?.label ?? "Chart"}
+            <span aria-hidden> · </span>
+            {DETECTOR_LABEL[insight.detector]}
+          </span>
           {featured && <span className="discover-story-spotlight">Worth a closer look</span>}
         </div>
       )}
@@ -80,6 +89,18 @@ export function StoryCard({
 
           {node.weave.narrative_annotation && (
             <p className="discover-story-blurb">{node.weave.narrative_annotation}</p>
+          )}
+
+          {insight.anchor && (
+            <p className="anchor-line" title={`Highlighted because this is ${insight.anchor.because}`}>
+              <strong>{insight.anchor.label}</strong> — {insight.anchor.because} — sits{" "}
+              <strong>{ordinal(insight.anchor.rank)} of {insight.anchor.of}</strong>
+              {insight.anchor.vsTypical !== null && (
+                <>, {insight.anchor.vsTypical >= 1
+                  ? `${insight.anchor.vsTypical.toFixed(1)}× the typical`
+                  : `${(1 / insight.anchor.vsTypical).toFixed(1)}× below typical`}</>
+              )}
+            </p>
           )}
 
           <div className="discover-story-insight">

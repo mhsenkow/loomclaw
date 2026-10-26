@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Weave } from "./lenses/Weave.tsx";
 import { Muse } from "./lenses/Muse.tsx";
 import { Drawer } from "./components/Drawer.tsx";
-import { GoalBar } from "./components/GoalBar.tsx";
 import { Onboarding, type TopicOption } from "./components/Onboarding.tsx";
 import * as api from "./lib/api.ts";
 import type { Beat, BoardView, GraphNode, Insight, Persona, Status } from "./lib/types.ts";
@@ -209,9 +208,6 @@ export default function App() {
         </button>
       </header>
 
-      {onboarded !== false && (
-        <GoalBar presets={presets} persona={persona} onApply={applyPersona} busy={busy} />
-      )}
 
       {error && <div className="scrim" style={{ color: "var(--loom-error)" }}>{error}</div>}
 
@@ -225,6 +221,9 @@ export default function App() {
         <Weave
           beats={beats}
           persona={persona}
+          presets={presets}
+          onAsk={applyPersona}
+          busy={busy}
           gaps={gaps}
           sources={(status?.sources ?? []).filter((c) => c.available.ok).map((c) => ({ kind: c.kind, label: c.label }))}
           sweeping={busy || !!status?.sweeping}

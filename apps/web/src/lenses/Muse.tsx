@@ -72,7 +72,7 @@ function Artifact({
         {insight && (
           <div className="wk-card-preview">
             <Micro insight={insight} width={200} height={44} />
-            <span className="wk-card-kind">{DETECTOR_LABEL[insight.detector]}</span>
+            <span className="wk-card-kind">{insight.chart?.label ?? DETECTOR_LABEL[insight.detector]}</span>
           </div>
         )}
         <div className="wk-card-copy">
