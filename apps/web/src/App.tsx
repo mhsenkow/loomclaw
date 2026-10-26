@@ -9,6 +9,7 @@ import { Drawer } from "./components/Drawer.tsx";
 import { Onboarding, type TopicOption } from "./components/Onboarding.tsx";
 import { DiscoverBar } from "./components/DiscoverBar.tsx";
 import { CommandBar } from "./components/CommandBar.tsx";
+import { FooterTips } from "./components/FooterTips.tsx";
 import { SourceList } from "./components/SourceList.tsx";
 import {
   applyBrowse, loadBrowse, saveBrowse, type BrowseState,
@@ -17,6 +18,8 @@ import * as api from "./lib/api.ts";
 import type { Beat, BoardView, GraphNode, Insight, Persona, Status } from "./lib/types.ts";
 
 type Lens = "weave" | "muse";
+
+const SRC_OPEN_KEY = "loomclaw.srcbar_open";
 
 export default function App() {
   const [lens, setLens] = useState<Lens>("weave");
@@ -35,6 +38,18 @@ export default function App() {
   const [browse, setBrowse] = useState<BrowseState>(() => loadBrowse());
   const updateBrowse = (next: Partial<BrowseState>) =>
     setBrowse((prev) => { const s = { ...prev, ...next }; saveBrowse(s); return s; });
+  /*
+   * Whether the source list is showing. It lives here because the button
+   * that opens it is in the rail and the panel itself is a sibling of the
+   * rail — neither can own the other's state.
+   */
+  const [srcOpen, setSrcOpen] = useState(() => {
+    try { return localStorage.getItem(SRC_OPEN_KEY) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(SRC_OPEN_KEY, srcOpen ? "1" : "0"); } catch { /* private mode */ }
+  }, [srcOpen]);
+  const closeSources = useCallback(() => setSrcOpen(false), []);
   const [boards, setBoards] = useState<BoardView[]>([]);
   const [persona, setPersona] = useState<Persona | null>(null);
   const [presets, setPresets] = useState<{ label: string; goals: string }[]>([]);
@@ -182,6 +197,26 @@ export default function App() {
         </div>
 
         <div className="rail-foot">
+          {/*
+            The source list opens from here rather than standing open. A
+            filter you set once a session does not earn a permanent column,
+            but it does earn a visible switch — and the dot shows a filter
+            is on while the panel is shut.
+          */}
+          {onboarded !== false && !error && (
+            <button
+              className={`rail-btn${browse.source !== "all" ? " filtering" : ""}`}
+              aria-pressed={srcOpen}
+              onClick={() => setSrcOpen((v) => !v)}
+              title={browse.source !== "all"
+                ? `Filtered to one source — open the list to change or clear it`
+                : "Filter the feed by where it came from"}
+            >
+              <span className="rail-glyph" aria-hidden>◧</span>
+              <span className="rail-label">Filter</span>
+            </button>
+          )}
+
           <button
             className="rail-btn"
             onClick={sweep}
@@ -194,12 +229,13 @@ export default function App() {
         </div>
       </nav>
 
-      {onboarded !== false && !error && (
+      {onboarded !== false && !error && srcOpen && (
         <SourceList
           sources={status?.sources ?? []}
           beats={beats}
           selected={browse.source}
           onSelect={(kind) => updateBrowse({ source: kind })}
+          onClose={closeSources}
         />
       )}
 
@@ -250,43 +286,13 @@ export default function App() {
 
         {onboarded !== false && !error && (
           <footer className="footer">
-            {/* The engine's own vital signs, out of the way but never hidden. */}
-            <div className="footer-metrics">
-              {rep && (
-                <span
-                  className="metric"
-                  title={rep.sources_failed.map((f) => `${f.kind}: ${f.error}`).join("\n") || "all collectors healthy"}
-                >
-                  <span className={rep.sources_failed.length ? "dot warn" : "dot ok"} />
-                  {rep.sources_ok}/{rep.sources_ok + rep.sources_failed.length} sources
-                </span>
-              )}
-              {status && <span className="metric">{status.observations.toLocaleString()} measurements</span>}
-              <span className="metric">{beats.length} findings</span>
-              {rep && (
-                <span className="metric" title={`last sweep took ${(rep.duration_ms / 1000).toFixed(0)}s`}>
-                  {(rep.duration_ms / 1000).toFixed(0)}s sweep
-                </span>
-              )}
-              {oc && (
-                <span
-                  className="metric"
-                  title={agentFramings > 0
-                    ? `${agentFramings} framing(s) written by OpenClaw`
-                    : `${oc.detail} — framings generated locally`}
-                >
-                  <span className={agentFramings > 0 ? "dot ok" : "dot warn"} />
-                  {agentFramings > 0 ? `OpenClaw · ${agentFramings}` : "Framing: local"}
-                </span>
-              )}
-              <span className="metric" title="Every collector reads this machine only, and narration runs on local Ollama. Nothing about you is uploaded.">
-                <span className="dot ok" /> local only
-              </span>
-              <span className="metric">
-                <span className={live ? "dot live" : "dot err"} /> {live ? "streaming" : "offline"}
-              </span>
-            </div>
-
+            {/*
+              Three rows, in the order a reader uses them: the suggestions
+              that start a question, the box that asks it, then the state of
+              the machine and what you can do next. The counts used to sit
+              beside the input, which pinched it; they belong on the line
+              that is already about status.
+            */}
             {lens === "weave" && (
               <CommandBar
                 query={browse.query}
@@ -295,12 +301,55 @@ export default function App() {
                 presets={presets}
                 activePreset={persona?.label ?? null}
                 busy={busy}
-                shown={shown.length}
-                total={beats.length}
-                sources={liveSources.length}
-                sweeping={busy || !!status?.sweeping}
               />
             )}
+
+            <div className="footer-info">
+              {/* The engine's own vital signs, out of the way but never hidden. */}
+              <div className="footer-metrics">
+                {rep && (
+                  <span
+                    className="metric"
+                    title={rep.sources_failed.map((f) => `${f.kind}: ${f.error}`).join("\n") || "all collectors healthy"}
+                  >
+                    <span className={rep.sources_failed.length ? "dot warn" : "dot ok"} />
+                    {rep.sources_ok}/{rep.sources_ok + rep.sources_failed.length} sources
+                  </span>
+                )}
+                {status && <span className="metric">{status.observations.toLocaleString()} measurements</span>}
+                <span className="metric">{beats.length} findings</span>
+                {rep && (
+                  <span className="metric" title={`last sweep took ${(rep.duration_ms / 1000).toFixed(0)}s`}>
+                    {(rep.duration_ms / 1000).toFixed(0)}s sweep
+                  </span>
+                )}
+                {oc && (
+                  <span
+                    className="metric"
+                    title={agentFramings > 0
+                      ? `${agentFramings} framing(s) written by OpenClaw`
+                      : `${oc.detail} — framings generated locally`}
+                  >
+                    <span className={agentFramings > 0 ? "dot ok" : "dot warn"} />
+                    {agentFramings > 0 ? `OpenClaw · ${agentFramings}` : "Framing: local"}
+                  </span>
+                )}
+                <span className="metric" title="Every collector reads this machine only, and narration runs on local Ollama. Nothing about you is uploaded.">
+                  <span className="dot ok" /> local only
+                </span>
+                <span className="metric">
+                  <span className={live ? "dot live" : "dot err"} /> {live ? "streaming" : "offline"}
+                </span>
+              </div>
+
+              {lens === "weave" && (
+                <FooterTips
+                  filtering={browse.query.trim().length > 0}
+                  shown={shown.length}
+                  total={beats.length}
+                />
+              )}
+            </div>
           </footer>
         )}
       </div>

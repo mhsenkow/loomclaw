@@ -8,13 +8,15 @@
 // This is the single bar. Typing filters as you go; pressing Enter (or
 // Ask) takes the same words as a statement of interest and re-ranks the
 // whole graph around them. The distinction is made visible rather than
-// guessed at — the hint line says what each will do with what you typed.
+// guessed at — the footer's instruction line says what each will do with
+// what you typed, and the counts that used to sit beside this input are
+// in that same line, which is where a reader looks for them.
 // =================================================================
 
 import { useEffect, useRef, useState } from "react";
 
 export function CommandBar({
-  query, onQuery, onAsk, presets, activePreset, busy, shown, total, sources, sweeping,
+  query, onQuery, onAsk, presets, activePreset, busy,
 }: {
   query: string;
   onQuery: (q: string) => void;
@@ -22,10 +24,6 @@ export function CommandBar({
   presets: { label: string; goals: string }[];
   activePreset: string | null;
   busy: boolean;
-  shown: number;
-  total: number;
-  sources: number;
-  sweeping: boolean;
 }) {
   const [text, setText] = useState(query);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,14 +67,6 @@ export function CommandBar({
       </div>
 
       <div className="cmd-row">
-        <div className="cmd-meta">
-          <span>{shown === total ? `${total} findings` : `${shown} of ${total}`}</span>
-          <span aria-hidden>·</span>
-          <span>{sources} sources</span>
-          <span aria-hidden>·</span>
-          <span className={sweeping ? "cmd-live" : ""}>{sweeping ? "sweeping…" : "up to date"}</span>
-        </div>
-
         <div className="cmd-field">
           <span className="cmd-icon" aria-hidden>⌕</span>
           <input
@@ -97,12 +87,6 @@ export function CommandBar({
           )}
         </div>
       </div>
-
-      <p className="cmd-hint">
-        {text
-          ? <>Filtering <strong>{shown}</strong> of {total} now — press <kbd>↵</kbd> to make it what this watches instead.</>
-          : <>Type to filter. Press <kbd>/</kbd> from anywhere to jump here.</>}
-      </p>
     </div>
   );
 }

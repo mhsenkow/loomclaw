@@ -623,21 +623,89 @@ input, textarea { font: inherit; color: inherit; }
 }
 .metric .dot { width: 6px; height: 6px; }
 
-/* The command bar sits beside the metrics, not above them. */
+/*
+ * Three stacked rows: suggestions, the box, then status. The input had
+ * been sharing its row with the counts and was capped at 34rem because of
+ * it; with the row to itself it takes the whole width, which is what a box
+ * you are meant to describe something in should look like.
+ */
 .footer .cmd { border-top: 0; padding-top: 0; }
 .footer .cmd-row { gap: 10px; }
-.footer .cmd-meta { display: none; }
+.footer .cmd-field { flex: 1 1 auto; }
+
+.footer-info {
+  display: flex; align-items: center; gap: 6px 18px; flex-wrap: wrap;
+  min-height: 18px;
+}
+.footer-info .footer-metrics { flex: 0 1 auto; }
+
+/*
+ * The instruction line. It rises a few pixels as it arrives rather than
+ * cutting, which is enough to catch the eye of someone not looking at it
+ * without pulling the eye of someone reading a finding.
+ */
+.footer-tip {
+  flex: 1 1 14rem; min-width: 0; margin: 0;
+  text-align: right; font-size: 10.5px; line-height: 1.4;
+  color: var(--loom-muted);
+}
+.footer-tip strong { color: var(--loom-text); font-weight: 600; }
+.footer-tip kbd {
+  padding: 0 4px; border-radius: 3px;
+  border: 1px solid var(--loom-border); background: var(--loom-surface);
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--loom-text);
+}
+.footer-tip.is-live { color: var(--loom-accent-dim); }
+.footer-tip-text {
+  display: inline-block;
+  animation: tip-in 420ms var(--ease-standard) both;
+}
+@keyframes tip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .footer-tip-text { animation: none; }
+}
+
+@media (max-width: 760px) { .footer-tip { display: none; } }
 
 /* ---- source sidebar ---- */
 
+/*
+ * Shut by default and absent when shut — the rail holds the switch. Opening
+ * slides it out from under the rail rather than appearing all at once, so
+ * the feed reflowing beside it reads as one movement.
+ */
 .srcbar {
   flex-shrink: 0; width: 212px;
   display: flex; flex-direction: column; gap: 6px;
   padding: 10px 8px;
-  background: color-mix(in srgb, var(--loom-surface) 70%, transparent);
+  background: color-mix(in srgb, var(--loom-surface) 92%, transparent);
   border-right: 1px solid var(--loom-border);
   overflow: hidden;
+  animation: srcbar-in 200ms var(--ease-standard) both;
 }
+@keyframes srcbar-in {
+  from { width: 0; padding-left: 0; padding-right: 0; opacity: 0; }
+  to   { width: 212px; opacity: 1; }
+}
+
+.srcbar-head {
+  display: flex; align-items: center; flex-shrink: 0;
+  padding: 2px 2px 2px 9px;
+}
+.srcbar-title {
+  flex: 1; margin: 0;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--loom-label);
+}
+.srcbar-close {
+  width: 20px; height: 20px; border-radius: var(--radius-sm);
+  font-size: 15px; line-height: 1; color: var(--loom-muted);
+  transition: all 140ms var(--ease-standard);
+}
+.srcbar-close:hover { color: var(--loom-text); background: color-mix(in srgb, var(--loom-elevated) 80%, transparent); }
 
 .srcbar-all {
   display: flex; align-items: center; gap: 8px; flex-shrink: 0;
@@ -645,7 +713,6 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 12px; font-weight: 600; color: var(--loom-muted);
   transition: all 150ms var(--ease-standard);
 }
-.srcbar-all > span:first-child { flex: 1; text-align: left; }
 .srcbar-all:hover { color: var(--loom-text); background: color-mix(in srgb, var(--loom-elevated) 75%, transparent); }
 .srcbar-all[aria-pressed="true"] {
   color: var(--loom-accent); background: color-mix(in srgb, var(--loom-accent) 14%, transparent);
@@ -653,7 +720,7 @@ input, textarea { font: inherit; color: inherit; }
 
 .srcbar-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 
-.srcbar-group h2 {
+.srcbar-group h3 {
   display: flex; align-items: baseline; gap: 6px;
   margin: 0 0 4px; padding: 0 9px;
   font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
@@ -663,6 +730,19 @@ input, textarea { font: inherit; color: inherit; }
   margin-left: auto; font-family: var(--font-mono); font-size: 9px;
   letter-spacing: 0; opacity: .6;
 }
+
+/*
+ * The health dot had no size of its own — only `.metric .dot` ever set one,
+ * so every dot in this list rendered at zero pixels and the spine came up
+ * empty. It is the spine's whole content, so it is sized here.
+ */
+.srcbar .dot {
+  flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
+  background: color-mix(in srgb, var(--loom-muted) 45%, transparent);
+  transition: box-shadow 150ms var(--ease-standard);
+}
+.srcbar .dot.ok { background: var(--loom-accent); }
+.srcbar .dot.warn { background: color-mix(in srgb, var(--loom-error) 70%, transparent); }
 
 .srcbar-row {
   display: flex; align-items: center; gap: 7px; width: 100%;
@@ -686,4 +766,17 @@ input, textarea { font: inherit; color: inherit; }
 }
 .srcbar-off { font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
 
+@media (prefers-reduced-motion: reduce) { .srcbar { animation: none; } }
+
 @media (max-width: 1180px) { .srcbar { display: none; } }
+
+/*
+ * A filter set while the panel is shut would otherwise be invisible. The
+ * rail button carries a dot for it — the same signal the source rows use.
+ */
+.rail-btn.filtering { color: var(--loom-accent-dim); }
+.rail-btn.filtering::after {
+  content: ""; position: absolute; top: 6px; right: 9px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--loom-accent);
+}
+.rail-btn { position: relative; }
