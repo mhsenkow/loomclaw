@@ -102,11 +102,11 @@ function deterministicFraming(ins: Insight): string {
   const top = ins.evidence.points.slice(0, 3).map((p) => p.label).join(", ");
   const strength = s.effect_size > 6 ? "very strong" : s.effect_size > 4 ? "strong" : "moderate";
   const byDetector: Record<string, string> = {
-    zscore_outlier: `A ${strength} deviation from the comparison set. Worth checking whether ${top} differs in how it is measured or reported before treating this as a real-world change.`,
-    concentration: `Concentration this far above an even split usually reflects structure — a few dominant actors, or a reporting pipeline weighted toward them. The distinction matters for what you conclude.`,
-    trend_break: `A sustained direction across ${s.n} observations rather than a single spike. The main alternative explanation is a change in the upstream feed itself, not in the world.`,
-    distribution_shift: `The composition moved more than the total did, so this is not simply a volume change. ${top} account for most of the movement.`,
-    cross_correlation: `Correlation over ${s.n} aligned observations. These are independent sources, so a shared driver is plausible — but with this few points a coincidence is not ruled out.`,
+    zscore_outlier: `A ${strength} departure from the rest of the set. Worth checking whether ${top} is simply recorded differently — a tool left open, a single long stretch — before reading it as a habit.`,
+    concentration: `Your attention here is far less evenly spread than chance would give. That usually reflects a real preference, though it can also mean one thing is easy to measure and the rest are not.`,
+    trend_break: `A sustained direction across ${s.n} days rather than one unusual stretch. The main alternative is that how this gets recorded changed, not that you did.`,
+    distribution_shift: `The mix moved more than the total did, so this is not simply doing more or less. ${top} account for most of the change.`,
+    cross_correlation: `These two records of you move together across ${s.n} intervals. A shared cause is plausible, but moving together is not one causing the other.`,
   };
   return `${byDetector[ins.detector] ?? ""} Statistic: ${s.name} = ${s.value.toFixed(3)}, p ≈ ${s.p_value.toExponential(1)}, n = ${s.n}.`;
 }
@@ -114,7 +114,7 @@ function deterministicFraming(ins: Insight): string {
 // "You have no tools" is load-bearing: handed a tool surface, a small local
 // model will try to shell out to satisfy even a trivial request. Saying so
 // plainly removes four wasted tool calls per run and fixes the output.
-const PROMPT = (ins: Insight) => `You are reviewing a statistical finding from a live societal-data monitor. The number has ALREADY been computed and verified. Do not recompute it, do not invent new figures, and do not add any statistic that is not listed below. You have no tools and need none; answer from the text alone.
+const PROMPT = (ins: Insight) => `You are helping someone understand a measured pattern in their OWN behaviour, taken from their own machine. The number has ALREADY been computed and verified. Do not recompute it, do not invent new figures, and do not add any statistic that is not listed below. You have no tools and need none; answer from the text alone.
 
 FINDING
   Source:      ${ins.source_kind}
@@ -126,7 +126,9 @@ FINDING
   n:           ${ins.statistic.n}
   Top values:  ${ins.evidence.points.slice(0, 6).map((p) => `${p.label}=${p.value}`).join(", ")}
 
-Write 2-3 sentences of flowing prose. No headings, no bullets, no numbered list. Cover, in order: what this would mean about the world if it is real, then the single most likely boring explanation (measurement artifact, reporting lag, feed change) that would make it NOT real. Be concrete and skeptical. Do not pad. Do not restate the numbers.`;
+Write 2-3 sentences of flowing prose, addressed to them as "you". No headings, no bullets, no numbered list. Cover, in order: what this pattern would say about how they actually work or live if it is real, then the single most likely mundane explanation (how the data is recorded, a tool left running, one unusual week) that would make it NOT real.
+
+Be concrete and skeptical, never flattering and never a scold — this is their own life, and they did not ask to be judged. Do not pad. Do not restate the numbers.`;
 
 /**
  * `useAgent` is the token circuit-breaker: false returns the local framing

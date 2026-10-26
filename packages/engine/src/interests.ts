@@ -13,49 +13,41 @@
 // =================================================================
 
 import type { Insight } from "@loomclaw/core-schema";
+import { describePlace, geoAffinity, placeFromGoals, type Place } from "./geo.ts";
+import { COLLECTOR_BY_KIND } from "./collectors/index.ts";
 
 export type Topic =
-  | "politics" | "money" | "food" | "health" | "safety" | "transport"
-  | "environment" | "cities" | "science" | "technology" | "infrastructure";
+  | "output" | "rhythm" | "focus" | "balance" | "learning"
+  | "projects" | "wellbeing" | "attention";
 
 export const TOPICS: Topic[] = [
-  "politics", "money", "food", "health", "safety", "transport",
-  "environment", "cities", "science", "technology", "infrastructure",
+  "output", "rhythm", "focus", "balance", "learning",
+  "projects", "wellbeing", "attention",
 ];
 
-/** Which topics each source can actually speak to, and how directly (0–1). */
+/** What each collector can actually tell you about, and how directly (0–1). */
 export const SOURCE_TOPICS: Record<string, Partial<Record<Topic, number>>> = {
-  lobbying:         { politics: 1.0, money: 0.9 },
-  fda_recalls:      { food: 1.0, health: 0.9, safety: 0.8 },
-  nyc_inspections:  { food: 1.0, safety: 0.95, health: 0.75, cities: 0.8 },
-  openfood:         { food: 1.0, health: 0.85 },
-  vehicle_recalls:  { safety: 1.0, transport: 0.9 },
-  nyc311:           { cities: 1.0, infrastructure: 0.7, safety: 0.5, transport: 0.4 },
-  faa_delays:       { transport: 1.0, infrastructure: 0.7 },
-  nws:              { environment: 0.9, safety: 0.8 },
-  usgs:             { environment: 1.0, safety: 0.6, science: 0.4 },
-  aq:               { environment: 1.0, health: 0.9, cities: 0.6 },
-  internet_outages: { infrastructure: 1.0, politics: 0.5, technology: 0.6 },
-  arxiv:            { science: 1.0, technology: 0.7 },
-  hn:               { technology: 1.0, science: 0.4 },
-  pageviews:        { politics: 0.4, technology: 0.3, science: 0.3 },
-  crypto:           { money: 1.0, technology: 0.4 },
-  _cross:           {},  // inherits from whichever pair it spans
+  git:         { output: 1.0, projects: 0.95, rhythm: 0.9, balance: 0.6 },
+  screentime:  { attention: 1.0, focus: 0.95, balance: 0.8, rhythm: 0.7 },
+  ai:          { learning: 1.0, output: 0.7, projects: 0.6, rhythm: 0.5 },
+  browsing:    { attention: 1.0, focus: 0.8, learning: 0.5 },
+  environment: { wellbeing: 1.0, balance: 0.4 },
 };
 
-/** Words that point at a topic. Deliberately plain — this is a router, not a classifier. */
+/**
+ * Words that point at a topic. A router, not a classifier — and written in
+ * the language people actually use about themselves ("burning out", "late
+ * nights", "distracted"), not in the vocabulary of the metrics.
+ */
 const LEXICON: Record<Topic, string[]> = {
-  politics:       ["politic", "government", "congress", "senate", "policy", "lobby", "election", "regulation", "law", "legislat", "influence", "corrupt", "power", "state"],
-  money:          ["money", "econom", "financ", "market", "spend", "cost", "price", "inflation", "budget", "fund", "dollar", "wealth", "invest", "capital"],
-  food:           ["food", "eat", "diet", "grocer", "nutrition", "restaurant", "agricultur", "produce", "meal", "ingredient", "recall", "contamina"],
-  health:         ["health", "medic", "disease", "illness", "hospital", "drug", "pharma", "wellness", "mortal", "safety of", "care"],
-  safety:         ["safe", "risk", "danger", "hazard", "accident", "injur", "recall", "warning", "emergenc", "disaster", "crime"],
-  transport:      ["transport", "travel", "flight", "airline", "airport", "traffic", "commut", "car", "vehicle", "transit", "road", "drive"],
-  environment:    ["environment", "climate", "weather", "pollut", "air quality", "emission", "earthquake", "storm", "flood", "fire", "nature", "ecolog"],
-  cities:         ["city", "cities", "urban", "neighborhood", "municipal", "local", "borough", "town", "civic", "resident", "housing"],
-  science:        ["science", "scientif", "research", "study", "paper", "academ", "discover", "physics", "biolog", "experiment"],
-  technology:     ["tech", "software", "ai", "computer", "internet", "digital", "data", "startup", "engineer", "code", "machine learning"],
-  infrastructure: ["infrastructure", "grid", "power", "network", "utility", "bridge", "pipeline", "outage", "broadband", "supply chain", "logistics"],
+  output:     ["output", "productive", "productivity", "ship", "shipping", "build", "built", "building", "commit", "work done", "getting done", "accomplish", "deliver"],
+  rhythm:     ["rhythm", "when", "time of day", "schedule", "morning", "night", "late", "hour", "pattern", "routine", "consistent", "cadence", "best work"],
+  focus:      ["focus", "focused", "deep work", "distract", "distracted", "interrupt", "context switch", "switching", "concentration", "scattered", "flow"],
+  balance:    ["balance", "burnout", "burning out", "overwork", "overworking", "rest", "break", "weekend", "too much", "exhaust", "tired", "sustainable", "health of"],
+  learning:   ["learn", "learning", "ai", "agent", "claude", "study", "skill", "improve", "growth", "research", "explore"],
+  projects:   ["project", "projects", "repo", "repository", "what am i", "working on", "side project", "spread", "juggling", "scattered across"],
+  wellbeing:  ["wellbeing", "well-being", "health", "healthy", "air", "sleep", "body", "environment", "breathing", "feel"],
+  attention:  ["attention", "screen time", "screen", "app", "browsing", "scroll", "doomscroll", "waste", "spending time", "where my time", "where does my time"],
 };
 
 export interface Persona {
@@ -67,14 +59,20 @@ export interface Persona {
   weights: Partial<Record<Topic, number>>;
   /** Topics the user asked for that no feed can currently answer. */
   uncovered: string[];
+  /** Where the reader is anchored, when the goals imply one. */
+  place: Place | null;
+  /** True when "my city" was resolved to a default rather than named outright. */
+  place_inferred: boolean;
+  /** Human-readable form of `place`, for the UI to state plainly. */
+  place_label: string;
 }
 
 /** Shipped starting points — each one exercises a different corner of the data. */
 export const PRESET_PERSONAS: { label: string; goals: string }[] = [
-  { label: "Follow the money in politics", goals: "I want to track political influence, lobbying money, and which industries are buying policy attention." },
-  { label: "What I eat and whether it's safe", goals: "Food safety, recalls, contamination, and anything affecting what ends up on my plate." },
-  { label: "My city, day to day", goals: "Urban life: what people complain about, transit, infrastructure failures, air quality where I live." },
-  { label: "Where science is heading", goals: "Research attention, what scientists and technologists are working on, emerging fields." },
+  { label: "When do I do my best work?", goals: "What time of day and which days I'm most productive — my rhythm, when I ship the most, when I work late." },
+  { label: "Where is my attention going?", goals: "Where my screen time and attention actually go, what distracts me, how much I context-switch." },
+  { label: "Am I overworking?", goals: "Whether I'm burning out — late nights, weekend work, whether my rest is sustainable." },
+  { label: "What am I actually building?", goals: "Which projects and repositories I'm spending myself on, and how scattered I am across them." },
   { label: "Everything, ranked by strength", goals: "" },
 ];
 
@@ -82,14 +80,13 @@ export const PRESET_PERSONAS: { label: string; goals: string }[] = [
  * Match a lexicon stem at a word boundary.
  *
  * Plain substring matching is actively wrong here: "ai" matches "air quality"
- * and tags an environment goal as technology. Anchoring to a word start, and
- * allowing any suffix, keeps stemming ("politic" -> "political", "politics")
- * without the false positives.
+ * and tags a wellbeing goal as learning. Anchoring to a word start, and
+ * allowing any suffix, keeps stemming ("productive" -> "productivity")
+ * without the false positives. Stems of three characters or fewer must match
+ * a whole word for the same reason.
  */
 function matches(text: string, stem: string): boolean {
   const esc = stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Short stems must match a whole word: a prefix rule would let "ai" match
-  // "air quality" and tag an environment goal as technology.
   const pattern = stem.length <= 3 ? `\\b${esc}\\b` : `\\b${esc}`;
   return new RegExp(pattern, "i").test(text);
 }
@@ -139,7 +136,45 @@ export function resolveGoals(goals: string): { weights: Partial<Record<Topic, nu
 
 export function makePersona(label: string, goals: string): Persona {
   const { weights, uncovered } = resolveGoals(goals);
-  return { id: `persona_${Date.now().toString(36)}`, label, goals, weights, uncovered };
+  // Personal collectors describe you, not a location; only the air-quality
+  // collector is geographic, and it is already pinned to your home city.
+  const { place, inferred } = placeFromGoals(goals);
+  return {
+    id: `persona_${Date.now().toString(36)}`,
+    label, goals, weights, uncovered,
+    place, place_inferred: inferred, place_label: describePlace(place),
+  };
+}
+
+/**
+ * Where a claim is about.
+ *
+ * Read from the dimension the claim names when that dimension is a place —
+ * this is what lets a world feed produce a local finding — and only otherwise
+ * from the source's own footprint. A cross-source claim spans two feeds, so it
+ * is placed only when both agree.
+ */
+export function insightPlace(insight: Insight): Place | null {
+  const kinds = insight.source_kind.split("+");
+  const metrics = insight.metric?.split("+") ?? [];
+
+  const places = kinds.map((kind, i) => {
+    const def = COLLECTOR_BY_KIND.get(kind);
+    if (!def) return null;
+    // Only the air-quality collector is geographic, and it is already pinned
+    // to the home city, so a claim's place is simply where you live or nowhere.
+    return def.kind === "environment"
+      ? ({ city: process.env.LOOMCLAW_HOME_CITY ?? "New York" } as Place)
+      : null;
+  });
+
+  if (places.length === 1) return places[0];
+  // Two feeds in different places describe no single place.
+  const [a, b] = places;
+  if (!a || !b) return null;
+  if (a.city && b.city && a.city === b.city) return a;
+  if (a.country && b.country && a.country === b.country) return { country: a.country };
+  return null;
 }
 
 /**
@@ -147,7 +182,7 @@ export function makePersona(label: string, goals: string): Persona {
  * A cross-source insight takes the best of the two sources it spans, which is
  * what makes "food" surface a food↔weather correlation.
  */
-export function relevance(persona: Persona, insight: Insight): number {
+export function topicRelevance(persona: Persona, insight: Insight): number {
   const kinds = insight.source_kind.split("+");
   let best = 0;
   for (const kind of kinds) {
@@ -158,6 +193,21 @@ export function relevance(persona: Persona, insight: Insight): number {
     }
   }
   return best;
+}
+
+/**
+ * Combined relevance: the topic match, scaled by how close the claim is to
+ * where the reader stands.
+ *
+ * Geography scales rather than gates. Someone asking about their city still
+ * wants to hear about a national recall; they just should not have to scroll
+ * past a Pacific earthquake to reach their own borough.
+ */
+export function relevance(persona: Persona, insight: Insight): number {
+  const topic = topicRelevance(persona, insight);
+  if (!persona.place) return topic;
+  const geo = geoAffinity(persona.place, insightPlace(insight));
+  return topic * (0.25 + 0.75 * geo);
 }
 
 /**

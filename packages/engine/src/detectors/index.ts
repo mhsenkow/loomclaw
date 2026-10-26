@@ -11,10 +11,11 @@
 
 import type { DetectorKind, Insight } from "@loomclaw/core-schema";
 import type { GraphStore, Observation } from "../graph.ts";
-import { SOURCE_BY_KIND, type SourceDef } from "../sources/registry.ts";
+import { COLLECTOR_BY_KIND, type Collector } from "../collectors/index.ts";
 import {
-  benjaminiHochberg, correlationP, gini, isInformative, linearTrend, mean, median,
-  pFromChiSquare, pFromZ, pearson, scaledRobustZ, sd, uniformGiniNull,
+  benjaminiHochberg, correlationP, gini, isCountLike, isInformative, linearTrend,
+  mean, median, pFromChiSquare, pFromZ, pearson, poissonExceedance, scaledRobustZ,
+  sd, uniformGiniNull,
 } from "./stats.ts";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -67,7 +68,20 @@ const fmt = (n: number): string => {
   return n.toFixed(2);
 };
 
-const unitOf = (def: SourceDef | undefined, metric: string) => def?.units?.[metric] ?? "";
+const unitOf = (def: Collector | undefined, metric: string) => def?.units?.[metric] ?? "";
+
+/**
+ * Units that denote a count of independent events, for which Poisson's
+ * variance = mean assumption actually holds.
+ *
+ * Line counts and hours are integers too, but they are magnitudes, not event
+ * counts: one commit can carry four thousand lines. Applying Poisson to them
+ * reports absurdities like 136σ, because the real variance dwarfs the mean.
+ */
+const COUNT_UNITS = new Set([
+  "commits", "sessions", "visits", "switches", "events", "repos", "domains",
+  "messages", "stories", "papers", "requests", "alerts", "filings", "recalls",
+]);
 
 /** Metric name -> readable phrase, so headlines don't read like column names. */
 const phrase = (metric: string) =>
@@ -77,7 +91,7 @@ const phrase = (metric: string) =>
 // 1. Cross-sectional outlier — who is unlike their peers right now
 // =================================================================
 
-function crossSectionalOutliers(def: SourceDef, current: Observation[], now: string): Insight[] {
+function crossSectionalOutliers(def: Collector, current: Observation[], now: string): Insight[] {
   const out: Insight[] = [];
   const byMetric = new Map<string, Observation[]>();
   for (const o of current) {
@@ -91,26 +105,49 @@ function crossSectionalOutliers(def: SourceDef, current: Observation[], now: str
     const values = obs.map((o) => o.value);
     const ranked = [...obs].sort((a, b) => b.value - a.value);
     const top = ranked[0];
-    const { z, transform, median: med, ratio } = scaledRobustZ(top.value, values);
-    if (!Number.isFinite(z) || Math.abs(z) < 3.5) continue;
-    if (triviallySmall(top.value, med)) continue;
-
-    const p = pFromZ(z);
-    if (p > MAX_P) continue;
     const unit = unitOf(def, metric);
-    const scaleNote = transform === "none" ? "" : ` on a ${transform} scale`;
+
+    // Counts get a Poisson test against an even split; continuous values get
+    // a robust z against their peers. Using one test for both is what made a
+    // lopsided working week look unremarkable.
+    const counts =
+      COUNT_UNITS.has(unit) && isCountLike(values) ? poissonExceedance(values, top.value) : null;
+
+    let z: number, p: number, statName: string, comparison: string;
+    if (counts) {
+      if (counts.z < 4) continue;
+      z = counts.z;
+      p = counts.p;
+      statName = `Poisson exceedance vs even split (Bonferroni over ${counts.k})`;
+      comparison =
+        `${fmt(top.value)}${unit ? " " + unit : ""} against ${fmt(counts.expected)} if spread evenly ` +
+        `across ${counts.k} — ${(top.value / counts.expected).toFixed(1)}× its share (${z.toFixed(1)}σ)`;
+    } else {
+      const r = scaledRobustZ(top.value, values);
+      if (!Number.isFinite(r.z) || Math.abs(r.z) < 3.5) continue;
+      if (triviallySmall(top.value, r.median)) continue;
+      z = r.z;
+      p = pFromZ(r.z);
+      statName = `robust z (MAD${r.transform === "none" ? "" : ", " + r.transform}) across peers`;
+      // Share of the total is the honest framing for a magnitude: "37% of your
+      // tracked hours" says something, where "249× the typical app" mostly
+      // reflects how many barely-used apps are in the list.
+      const total = values.reduce((a, b) => a + b, 0);
+      const share = total > 0 ? (top.value / total) * 100 : 0;
+      comparison =
+        `${fmt(top.value)}${unit ? " " + unit : ""} — ${share.toFixed(0)}% of your ${fmt(total)}` +
+        `${unit ? " " + unit : ""} across ${values.length} (${z.toFixed(1)}σ vs the rest)`;
+    }
+    if (p > MAX_P) continue;
+    const med = median(values);
 
     out.push({
       id: `ins_${uid()}`,
       detector: "zscore_outlier",
       source_kind: def.kind,
       metric,
-      headline:
-        `${top.dim} stands out in ${phrase(metric)}: ` +
-        `${fmt(top.value)}${unit ? " " + unit : ""} against a peer median of ${fmt(med)}` +
-        (Number.isFinite(ratio) ? ` — ${ratio.toFixed(1)}× the typical peer` : "") +
-        ` (${z.toFixed(1)}σ${scaleNote}, n=${obs.length})`,
-      statistic: { name: `robust z (MAD${transform === "none" ? "" : ", " + transform}) across peers`, value: z, effect_size: Math.abs(z), p_value: p, n: obs.length },
+      headline: `${top.dim} leads your ${phrase(metric)}: ${comparison}`,
+      statistic: { name: statName, value: z, effect_size: Math.abs(z), p_value: p, n: obs.length },
       evidence: {
         points: ranked.slice(0, 12).map((o) => ({ label: o.dim, value: o.value })),
         baseline: [{ label: "peer median", value: med }],
@@ -129,7 +166,7 @@ function crossSectionalOutliers(def: SourceDef, current: Observation[], now: str
 // 2. Concentration — is this domain dominated by a few actors
 // =================================================================
 
-function concentration(def: SourceDef, current: Observation[], now: string): Insight[] {
+function concentration(def: Collector, current: Observation[], now: string): Insight[] {
   const out: Insight[] = [];
   const byMetric = new Map<string, Observation[]>();
   for (const o of current) {
@@ -163,7 +200,7 @@ function concentration(def: SourceDef, current: Observation[], now: string): Ins
       source_kind: def.kind,
       metric,
       headline:
-        `${phrase(metric)} is highly concentrated (Gini ${g.toFixed(2)} vs ${nullG.toFixed(2)} expected if even): ` +
+        `Your ${phrase(metric)}: concentrated in a few places (Gini ${g.toFixed(2)} vs ${nullG.toFixed(2)} if even) — ` +
         `${ranked.slice(0, 3).map((o) => o.dim).join(", ")} hold ${top3Share.toFixed(0)}% of ${fmt(total)}${unit ? " " + unit : ""} across ${values.length}`,
       statistic: { name: "Gini vs uniform null", value: g, effect_size: z, p_value: p, n: values.length },
       evidence: {
@@ -183,7 +220,7 @@ function concentration(def: SourceDef, current: Observation[], now: string): Ins
 // 3. Longitudinal level shift — a scalar jumping off its own baseline
 // =================================================================
 
-function levelShifts(store: GraphStore, def: SourceDef, current: Observation[], now: string): Insight[] {
+function levelShifts(store: GraphStore, def: Collector, current: Observation[], now: string): Insight[] {
   const out: Insight[] = [];
   for (const o of current) {
     if (o.dim) continue; // scalars only
@@ -207,7 +244,7 @@ function levelShifts(store: GraphStore, def: SourceDef, current: Observation[], 
       source_kind: def.kind,
       metric: o.metric,
       headline:
-        `${def.label}: ${phrase(o.metric)} is ${Math.abs(z).toFixed(1)}σ ${dir} its own baseline — ` +
+        `Your ${phrase(o.metric)} is ${Math.abs(z).toFixed(1)}σ ${dir} your own baseline — ` +
         `${fmt(o.value)}${unit ? " " + unit : ""} vs a ${prior.length}-sweep median of ${fmt(base)}`,
       statistic: { name: `robust z vs own history (MAD${scaleNote})`, value: z, effect_size: Math.abs(z), p_value: p, n: prior.length },
       evidence: {
@@ -228,7 +265,7 @@ function levelShifts(store: GraphStore, def: SourceDef, current: Observation[], 
 // 4. Trend break — a sustained direction, not a single spike
 // =================================================================
 
-function trends(store: GraphStore, def: SourceDef, current: Observation[], now: string): Insight[] {
+function trends(store: GraphStore, def: Collector, current: Observation[], now: string): Insight[] {
   const out: Insight[] = [];
   const targets = current.filter((o) => !o.dim);
 
@@ -253,7 +290,7 @@ function trends(store: GraphStore, def: SourceDef, current: Observation[], now: 
       source_kind: def.kind,
       metric: o.metric,
       headline:
-        `${def.label}: ${phrase(o.metric)} is ${dir} steadily — ` +
+        `Your ${phrase(o.metric)} is ${dir} steadily — ` +
         `${fmt(fit.slope)}${unit ? " " + unit : ""} per sweep (${pctPerSweep >= 0 ? "+" : ""}${pctPerSweep.toFixed(1)}%), ` +
         `R²=${fit.r2.toFixed(2)} over ${fit.n} sweeps`,
       statistic: { name: "OLS slope t-statistic", value: fit.slope, effect_size: Math.abs(fit.t), p_value: p, n: fit.n },
@@ -274,7 +311,7 @@ function trends(store: GraphStore, def: SourceDef, current: Observation[], now: 
 // 5. Distribution shift — the mix changed, not just the total
 // =================================================================
 
-function distributionShift(store: GraphStore, def: SourceDef, current: Observation[], now: string): Insight[] {
+function distributionShift(store: GraphStore, def: Collector, current: Observation[], now: string): Insight[] {
   const out: Insight[] = [];
   const byMetric = new Map<string, Observation[]>();
   for (const o of current) {
@@ -329,7 +366,7 @@ function distributionShift(store: GraphStore, def: SourceDef, current: Observati
       source_kind: def.kind,
       metric,
       headline:
-        `${def.label}: the mix of ${phrase(metric)} shifted (Cramér's V ${v.toFixed(2)}, χ²=${chi2.toFixed(0)}, df=${df}) — ` +
+        `The mix of your ${phrase(metric)} shifted (Cramér's V ${v.toFixed(2)}, χ²=${chi2.toFixed(0)}, df=${df}) — ` +
         movers.slice(0, 3).map((m) => `${m.label} ${m.d > 0 ? "+" : ""}${fmt(m.d)} vs expected`).join(", "),
       statistic: { name: "χ² goodness-of-fit (Cramér's V)", value: chi2, effect_size: v * 20, p_value: p, n: Math.round(nowTotal) },
       evidence: {
@@ -354,7 +391,7 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
   const out: Insight[] = [];
   // Only scalar series, which are directly comparable sweep-to-sweep.
   const series: { kind: string; metric: string; values: number[]; stamps: string[] }[] = [];
-  for (const def of SOURCE_BY_KIND.values()) {
+  for (const def of COLLECTOR_BY_KIND.values()) {
     for (const metric of Object.keys(def.units ?? {})) {
       const h = store.history(def.kind, metric, "", 200);
       // A flat or two-valued series is an API constant, not a measurement.
@@ -389,7 +426,7 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
     if (!survivors.has(idx)) continue;
     if (Math.abs(r) < 0.8) continue;
     {
-      const da = SOURCE_BY_KIND.get(a.kind), db = SOURCE_BY_KIND.get(b.kind);
+      const da = COLLECTOR_BY_KIND.get(a.kind), db = COLLECTOR_BY_KIND.get(b.kind);
       out.push({
         id: `ins_${uid()}`,
         detector: "cross_correlation",
@@ -424,15 +461,36 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
 // Orchestration + scoring
 // =================================================================
 
+/**
+ * Reduce a backfill to the single most recent observation per series.
+ *
+ * Collectors replay months of dated history on every sweep, so `current`
+ * holds ~110 days at once rather than one snapshot. Handed that directly, a
+ * longitudinal detector would test every historical day against the same
+ * history and emit a hundred near-identical claims. The question these
+ * detectors answer is "where does the series stand *now*", so they get the
+ * latest point and read the rest out of the store.
+ */
+function latestPerSeries(current: Observation[]): Observation[] {
+  const best = new Map<string, Observation>();
+  for (const o of current) {
+    const key = `${o.metric}\u0000${o.dim}`;
+    const prev = best.get(key);
+    if (!prev || o.observed_at > prev.observed_at) best.set(key, o);
+  }
+  return [...best.values()];
+}
+
 export function runDetectors(store: GraphStore, kind: string, current: Observation[], now: string): Insight[] {
-  const def = SOURCE_BY_KIND.get(kind);
+  const def = COLLECTOR_BY_KIND.get(kind);
   if (!def || !current.length) return [];
+  const latest = latestPerSeries(current);
   return [
-    ...crossSectionalOutliers(def, current, now),
-    ...concentration(def, current, now),
-    ...levelShifts(store, def, current, now),
-    ...trends(store, def, current, now),
-    ...distributionShift(store, def, current, now),
+    ...crossSectionalOutliers(def, latest, now),
+    ...concentration(def, latest, now),
+    ...levelShifts(store, def, latest, now),
+    ...trends(store, def, latest, now),
+    ...distributionShift(store, def, latest, now),
   ];
 }
 

@@ -21,13 +21,13 @@ export function GoalBar({
 
   return (
     <div className="goalbar">
-      <span className="kicker">I care about</span>
+      <span className="kicker">Tell me about</span>
       <input
         value={text}
-        placeholder="politics and who's paying for it · food safety · my city · where science is heading…"
+        placeholder="when I do my best work · where my attention leaks · am I overworking · what I'm really building…"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
-        aria-label="Describe what you want this to watch for you"
+        aria-label="Describe what you want to understand about yourself"
       />
       <button className="btn primary" onClick={submit} disabled={busy}>Re-weave</button>
       <div className="preset-row">

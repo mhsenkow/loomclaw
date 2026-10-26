@@ -274,3 +274,44 @@ export function benjaminiHochberg(pValues: number[], q = 0.01): number[] {
   }
   return cutoff < 0 ? [] : order.slice(0, cutoff + 1).map((o) => o.i);
 }
+
+
+/**
+ * Standardized exceedance of the largest category over an even split.
+ *
+ * For counts — commits per weekday, sessions per project, hours per app — the
+ * natural question is "is this more than its share?", and the natural null is
+ * that the total is spread evenly across the categories observed. Under that
+ * null each category is Poisson(total/k), so the standardized residual is
+ * (observed - expected)/sqrt(expected).
+ *
+ * This matters because a robust z is close to useless here: with seven
+ * weekdays, MAD is computed from seven points and a genuinely lopsided week
+ * cannot reach 3.5σ. The Poisson form has no such problem and asks a question
+ * that actually means something about a person's rhythm.
+ */
+export interface Exceedance {
+  z: number;
+  expected: number;
+  observed: number;
+  /** Bonferroni-adjusted for having picked the largest of k categories. */
+  p: number;
+  k: number;
+}
+
+export function poissonExceedance(values: number[], top: number): Exceedance | null {
+  const k = values.length;
+  const total = values.reduce((a, b) => a + b, 0);
+  if (k < 3 || total < 30) return null;
+  const expected = total / k;
+  if (expected <= 0) return null;
+  const z = (top - expected) / Math.sqrt(expected);
+  // The maximum of k categories was chosen *because* it was the maximum, so
+  // its p-value must be corrected for that selection.
+  const p = Math.min(1, k * pFromZ(z));
+  return { z, expected, observed: top, p, k };
+}
+
+/** True when a series is count-like: non-negative whole numbers. */
+export const isCountLike = (xs: number[]) =>
+  xs.every((v) => Number.isInteger(v) && v >= 0);

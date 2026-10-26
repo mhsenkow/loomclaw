@@ -77,7 +77,11 @@ export class GraphStore {
         value       REAL NOT NULL,
         observed_at TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_obs ON observations(source_kind, metric, dim, observed_at);
+      -- Unique so historical backfill is idempotent: collectors replay months
+      -- of real timestamps on every sweep, and re-ingesting a day must not
+      -- duplicate it. Today's row is rewritten as the day fills in.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_obs_unique
+        ON observations(source_kind, metric, dim, observed_at);
 
       CREATE TABLE IF NOT EXISTS seen_insights (
         fingerprint TEXT PRIMARY KEY,
@@ -150,6 +154,23 @@ export class GraphStore {
       .all() as { weave: string }[];
     const used = r.map((x) => JSON.parse(x.weave).sequence_index ?? -1);
     return used.length ? Math.max(...used) + 1 : 0;
+  }
+
+  /** Remove a board and everything that hangs off it. */
+  deleteSubtree(boardId: string) {
+    const kids = this.db.prepare("SELECT id FROM nodes WHERE parent_board_id = ?").all(boardId) as { id: string }[];
+    for (const k of kids) {
+      this.db.prepare("DELETE FROM edges WHERE source_node_id = ? OR target_node_id = ?").run(k.id, k.id);
+      this.db.prepare("DELETE FROM nodes WHERE id = ?").run(k.id);
+    }
+    this.db.prepare("DELETE FROM edges WHERE source_node_id = ? OR target_node_id = ?").run(boardId, boardId);
+    this.db.prepare("DELETE FROM nodes WHERE id = ?").run(boardId);
+  }
+
+  /** Drop observations from collectors that no longer exist. */
+  pruneObservations(keepKinds: string[]) {
+    const q = keepKinds.map(() => "?").join(",");
+    this.db.prepare(`DELETE FROM observations WHERE source_kind NOT IN (${q})`).run(...keepKinds);
   }
 
   // ---- edges ----
@@ -241,7 +262,7 @@ export class GraphStore {
 
   recordObservations(obs: Observation[]) {
     const stmt = this.db.prepare(
-      "INSERT INTO observations (source_kind, metric, dim, value, observed_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO observations (source_kind, metric, dim, value, observed_at) VALUES (?, ?, ?, ?, ?)",
     );
     for (const o of obs) stmt.run(o.source_kind, o.metric, o.dim, o.value, o.observed_at);
   }

@@ -15,7 +15,7 @@ import type {
   ExecutionSpineStep, Insight, UnifiedGraphNode,
 } from "@loomclaw/core-schema";
 import type { GraphStore } from "./graph.ts";
-import { SOURCES, SOURCE_BY_KIND, pollSource } from "./sources/registry.ts";
+import { COLLECTORS, COLLECTOR_BY_KIND, WINDOW_DAYS } from "./collectors/index.ts";
 import { crossCorrelations, fingerprint, meritOf, runDetectors, scoreInsight } from "./detectors/index.ts";
 import { narrate, narrationStep } from "./openclaw.ts";
 
@@ -106,7 +106,7 @@ function retireInvalid(store: GraphStore, emit: (e: string, d: unknown) => void)
       // A metric since marked structural: its cross-sectional ranking is a
       // property of the domain, not a finding.
       (["zscore_outlier", "concentration"].includes(ins.detector) &&
-        (SOURCE_BY_KIND.get(ins.source_kind)?.structural ?? []).includes(ins.metric)) ||
+        (COLLECTOR_BY_KIND.get(ins.source_kind)?.structural ?? []).includes(ins.metric)) ||
       // Below the current publication bar.
       ins.merit < PIN_MERIT;
     if (!invalid) continue;
@@ -135,17 +135,33 @@ export async function runSweep(
     insights_found: 0, insights_published: 0, pinned: 0, retired: 0, narrated_via: {},
   };
 
-  emit("sweep:start", { sweep_id: sweepId, sources: SOURCES.length });
+  emit("sweep:start", { sweep_id: sweepId, sources: COLLECTORS.length });
 
+  // Boards left behind by a collector that no longer exists would otherwise
+  // sit on the canvas forever, showing findings nothing can refresh.
+  const live = new Set([...COLLECTORS.map((c) => `board_${c.kind}`), "board__cross"]);
+  for (const n of store.allNodes()) {
+    if (n.kind === "board" && !live.has(n.id)) store.deleteSubtree(n.id);
+  }
+
+  store.pruneObservations(COLLECTORS.map((c) => c.kind));
   report.retired = retireInvalid(store, emit);
   const retired = report.retired;
   if (retired) console.log(`[sweep] retired ${retired} claim(s) that no longer pass validity rules`);
 
-  // ---- 1. poll every source in parallel; one failure never stops a sweep ----
-  const results = await Promise.all(SOURCES.map((s) => pollSource(s, now)));
+  // ---- 1. read every collector in parallel; one failure never stops a sweep ----
+  const results = await Promise.all(
+    COLLECTORS.map(async (c) => {
+      const av = await c.available();
+      if (!av.ok) {
+        return { ok: false as const, observations: [], error: av.reason ?? "unavailable", detail: "", duration_ms: 0 };
+      }
+      return c.collect(WINDOW_DAYS);
+    }),
+  );
   const candidates: { insight: Insight; boardId: string; spineId: string }[] = [];
 
-  for (const [i, def] of SOURCES.entries()) {
+  for (const [i, def] of COLLECTORS.entries()) {
     const res = results[i];
     const boardId = ensureBoard(store, def.kind, def.label, def.premise, i);
     const spineId = `spine_${def.kind}_${sweepId.slice(0, 8)}`;
@@ -167,11 +183,11 @@ export async function runSweep(
     };
 
     step({
-      tool_name: "loom_fetch",
-      input_args: { endpoint: `/api/source/${def.kind}`, via: "loom.ibm.io worker" },
+      tool_name: "collect",
+      input_args: { source: def.origin, window_days: WINDOW_DAYS },
       stdout_preview: res.ok
-        ? `${(res.bytes / 1024).toFixed(1)} KB -> ${res.observations.length} observations`
-        : `upstream failed: ${res.error}`,
+        ? `${res.detail} -> ${res.observations.length} observations`
+        : `unavailable: ${res.error}`,
       status: res.ok ? "success" : "failed",
       duration_ms: res.duration_ms,
     });
@@ -193,30 +209,27 @@ export async function runSweep(
     const found = runDetectors(store, def.kind, res.observations, now);
 
     /*
-     * Only record when the payload actually changed.
-     *
-     * Sweeps run far more often than most of these sources publish — NYC Open
-     * Data is daily, Open Food Facts slower still. Appending an identical row
-     * every sweep would manufacture history: a trend or correlation test would
-     * see n=50 when the true independent sample is n=1, and report a p-value
-     * built almost entirely out of duplicates. Skipping unchanged payloads
-     * makes n the number of genuinely distinct observations, which is the only
-     * denominator those tests are entitled to.
+     * Collectors replay real history every sweep — a git repository holds
+     * months of dated commits. Writes are keyed on
+     * (source, metric, dim, observed_at), so replaying is idempotent: past
+     * days are rewritten identically and today's partial day is corrected as
+     * it fills in. That is what lets a trend be real on the first run instead
+     * of accumulating one sweep at a time.
      */
     const contentHash = hash(JSON.stringify(res.observations.map((o) => [o.metric, o.dim, o.value])));
     const unchanged = contentHash === store.getNode(boardId)?.execution.input_hash;
     if (unchanged) report.sources_unchanged++;
-    else { store.recordObservations(res.observations); report.observations += res.observations.length; }
+    store.recordObservations(res.observations);
+    report.observations += res.observations.length;
 
     step({
       tool_name: "detector_scan",
       input_args: {
         detectors: ["zscore_outlier", "concentration", "trend_break", "distribution_shift"],
         observations: res.observations.length,
-        recorded: !unchanged,
       },
       stdout_preview:
-        (unchanged ? "upstream unchanged since last sweep — not recorded (would inflate n)\n" : "") +
+        (unchanged ? "no change since last sweep\n" : "") +
         (found.length
           ? found.map((f) => `${f.detector}: effect ${f.statistic.effect_size.toFixed(1)}, p=${f.statistic.p_value.toExponential(1)}`).join("\n")
           : "no claim cleared the significance floor"),
@@ -229,13 +242,13 @@ export async function runSweep(
 
     board.execution.status = found.length ? "resolved" : "idle";
     board.execution.input_hash = contentHash;
-    board.execution.token_weight = Math.round(res.bytes / 4);
+    board.execution.token_weight = res.observations.length;
     store.upsertNode(board);
     emit("node:update", board);
   }
 
   // ---- 3. cross-source correlations, on their own Board ----
-  const xBoard = ensureBoard(store, "_cross", "Cross-source correlation", "Relationships that only appear when independent feeds are aligned on the same clock.", SOURCES.length);
+  const xBoard = ensureBoard(store, "_cross", "Connections across your life", "Relationships that only appear when two different records of you are lined up on the same days — whether your sleep tracks your output, whether screen time tracks shipping.", COLLECTORS.length);
   const xSpine = `spine_cross_${sweepId.slice(0, 8)}`;
   const tx = Date.now();
   const xFound = crossCorrelations(store, now);
@@ -255,9 +268,17 @@ export async function runSweep(
 
   // ---- 4. score, de-duplicate, rank ----
   for (const c of candidates) {
-    const times = store.noteFingerprint(fingerprint(c.insight), now);
+    const fp = fingerprint(c.insight);
+    const times = store.noteFingerprint(fp, now);
     c.insight.merit = meritOf(c.insight);
     c.insight.score = scoreInsight(c.insight, times);
+    /*
+     * A claim's node id is derived from its fingerprint, so the same claim
+     * occupies the same node across sweeps. Re-detection then updates it in
+     * place — the wording refreshes, a manual pin survives, and the canvas
+     * never accumulates twins of one finding that differ only in phrasing.
+     */
+    c.insight.id = `ins_${hash(fp)}`;
   }
   candidates.sort((a, b) => b.insight.score - a.insight.score);
 
@@ -281,6 +302,7 @@ export async function runSweep(
     const { insight, boardId } = c;
     const shouldPin = insight.merit >= PIN_MERIT && narrations.has(insight.id);
 
+    const prior = store.getNode(insight.id);
     const node: UnifiedGraphNode = {
       id: insight.id,
       parent_board_id: boardId,
@@ -292,8 +314,9 @@ export async function runSweep(
         width: 180, height: 88, z_index: 1, is_collapsed: false,
       },
       weave: {
-        is_pinned: shouldPin,
-        sequence_index: shouldPin ? pinIndex++ : null,
+        // A card you pinned by hand stays pinned even if its score dips.
+        is_pinned: shouldPin || (prior?.weave.is_pinned ?? false),
+        sequence_index: prior?.weave.sequence_index ?? (shouldPin ? pinIndex++ : null),
         section_group: insight.detector,
         layout_variant: insight.detector === "cross_correlation" ? "side_by_side" : "full_bleed",
         narrative_annotation: narrations.get(insight.id)?.text,
@@ -318,7 +341,7 @@ export async function runSweep(
           framed_by: narrations.get(insight.id)?.via ?? "none",
         },
       },
-      created_at: now,
+      created_at: prior?.created_at ?? now,
     };
 
     store.upsertNode(node);
@@ -332,6 +355,30 @@ export async function runSweep(
     report.insights_published++;
     if (shouldPin) report.pinned++;
     emit("node:update", node);
+  }
+
+  /*
+   * Anything this sweep did not re-detect is no longer true.
+   *
+   * Collectors rebuild the full picture from source every sweep, so a claim
+   * that still holds is necessarily among this sweep's candidates. One that
+   * is absent has been superseded — by changed data, a renamed dimension, or
+   * a tightened rule — and leaving it pinned would let the story drift away
+   * from the evidence underneath it.
+   */
+  const fresh = new Set(candidates.map((c) => fingerprint(c.insight)));
+  for (const n of store.allNodes()) {
+    if (n.kind !== "output_artifact" || !n.weave.is_pinned || !n.payload.inline_content) continue;
+    if (n.created_at === now) continue;
+    let ins: Insight;
+    try { ins = JSON.parse(n.payload.inline_content) as Insight; } catch { continue; }
+    if (fresh.has(fingerprint(ins))) continue;
+    n.weave.is_pinned = false;
+    n.weave.sequence_index = null;
+    n.execution.status = "stale";
+    store.upsertNode(n);
+    report.retired++;
+    emit("node:update", n);
   }
 
   report.duration_ms = Date.now() - t0;

@@ -108,6 +108,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <span className="wordmark">LOOM <span>//</span> CLAW</span>
+        <span className="subtitle">what your own data says about you</span>
 
         <div className="lens-toggle">
           <button aria-pressed={lens === "weave"} onClick={() => setLens("weave")}>Weave</button>
@@ -117,11 +118,22 @@ export default function App() {
         <span className="spacer" />
 
         {rep && (
-          <span className="status-pill" title={rep.sources_failed.map((f) => `${f.kind}: ${f.error}`).join("\n") || "all sources healthy"}>
+          <span
+            className="status-pill"
+            title={rep.sources_failed.map((f) => `${f.kind}: ${f.error}`).join("\n") || "all collectors healthy"}
+          >
             <span className={rep.sources_failed.length ? "dot warn" : "dot ok"} />
-            {rep.sources_ok}/{rep.sources_ok + rep.sources_failed.length} feeds · {status?.observations.toLocaleString()} obs
+            {rep.sources_ok}/{rep.sources_ok + rep.sources_failed.length} sources ·{" "}
+            {status?.observations.toLocaleString()} measurements
           </span>
         )}
+
+        <span
+          className="status-pill"
+          title="Every collector reads this machine only, and narration runs on local Ollama. Nothing about you is uploaded."
+        >
+          <span className="dot ok" /> local only
+        </span>
 
         {rep && (
           // Weave size is the live projection, not the last sweep's delta — a

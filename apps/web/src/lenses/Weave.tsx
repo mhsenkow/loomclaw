@@ -35,9 +35,9 @@ export function Weave({
         <header className="weave-head">
           <h1>{persona?.label ?? "The Weave"}</h1>
           <p>
-            {beats.length} finding{beats.length === 1 ? "" : "s"} that cleared significance, ranked{" "}
-            {focused ? "for your goals" : "by statistical strength"}. Every number below was computed
-            from live public data before any model saw it.
+            {beats.length} pattern{beats.length === 1 ? "" : "s"} in your own data that cleared
+            significance, ranked {focused ? "against what you asked about" : "by statistical strength"}.
+            Every number was measured on this machine before any model saw it — nothing was uploaded.
           </p>
           {focused && (
             <div className="topic-chips" style={{ marginTop: 12 }}>
@@ -53,7 +53,7 @@ export function Weave({
           ) : null}
           {gaps.length > 0 && (
             <p style={{ marginTop: 10, color: "var(--loom-warning)" }}>
-              Nothing cleared significance for <strong>{gaps.join(", ")}</strong> this sweep. What follows is
+              Nothing measurable cleared significance for <strong>{gaps.join(", ")}</strong>. What follows is
               adjacent, not a substitute — the gap is real, not hidden.
             </p>
           )}
@@ -61,7 +61,8 @@ export function Weave({
 
         {beats.length === 0 && (
           <div className="empty">
-            Nothing has cleared the significance floor yet. Run a sweep, or widen your goals.
+            Nothing in your data has cleared the significance floor yet. Run a sweep, or widen what
+            you&rsquo;re asking about.
           </div>
         )}
 
@@ -94,17 +95,17 @@ export function Weave({
               {b.node.weave.narrative_annotation && (
                 <div className="framing">
                   {b.node.weave.narrative_annotation}
-                  <span className="by">Framing only — the statistic above was computed independently</span>
+                  <span className="by">Framing only — the number above was measured before any model saw it</span>
                 </div>
               )}
 
               <div className="beat-foot">
                 <span className="provenance">
-                  ⚡ {b.insight.evidence.points.length} values · {new Date(b.insight.detected_at).toLocaleTimeString()}
+                  ⚡ measured from {b.insight.evidence.points.length} values · {new Date(b.insight.detected_at).toLocaleString()}
                 </span>
                 <span className="spacer" />
                 <button className="linkish" onClick={() => onZoom(b)}>
-                  Zoom into the board that produced this →
+                  See how this was measured →
                 </button>
               </div>
             </article>

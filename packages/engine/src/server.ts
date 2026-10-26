@@ -8,12 +8,13 @@ import { join } from "node:path";
 import type { Insight, UnifiedGraphNode } from "@loomclaw/core-schema";
 import { GraphStore } from "./graph.ts";
 import { runSweep, type SweepReport } from "./sweep.ts";
-import { SOURCES } from "./sources/registry.ts";
+import { COLLECTORS, WINDOW_DAYS } from "./collectors/index.ts";
 import { openclawStatus } from "./openclaw.ts";
 import {
-  PRESET_PERSONAS, SOURCE_TOPICS, TOPICS, coverageGaps, makePersona, rankForPersona, relevance,
-  type Persona,
+  PRESET_PERSONAS, SOURCE_TOPICS, TOPICS, coverageGaps, insightPlace, makePersona,
+  rankForPersona, relevance, type Persona,
 } from "./interests.ts";
+import { describePlace } from "./geo.ts";
 
 const PORT = Number(process.env.PORT ?? 7717);
 const DB_PATH = process.env.LOOMCLAW_DB ?? join(homedir(), ".loomclaw", "graph.db");
@@ -61,13 +62,15 @@ function weaveProjection() {
         insight,
         relevance: insight ? relevance(persona, insight) : 0,
         rank: insight ? rankForPersona(persona, insight) : 0,
+        place: insight ? describePlace(insightPlace(insight)) : "anywhere",
       };
     })
     .filter((b) => b.insight)
     .sort((a, b) => b.rank - a.rank);
 
-  // Successive sweeps re-detect the same standing condition. Collapse repeats
-  // to the newest observation so the story reads as a story, not a log.
+  // Belt and braces alongside stable node ids: if two records of one claim
+  // ever coexist, the most recently detected wins.
+  beats.sort((a, b) => (b.insight!.detected_at > a.insight!.detected_at ? 1 : b.rank - a.rank));
   const seen = new Set<string>();
   return beats.filter((b) => {
     const key = `${b.insight!.detector}:${b.insight!.source_kind}:${b.insight!.evidence.points[0]?.label ?? ""}`;
@@ -110,7 +113,7 @@ function collapseRepeats(children: { node: UnifiedGraphNode; insight: Insight | 
  * situation off the canvas instead of taking a sentence's word for it.
  */
 function boardSeries(kind: string): { metric: string; values: number[] } | null {
-  const def = SOURCES.find((s) => s.kind === kind);
+  const def = COLLECTORS.find((s) => s.kind === kind);
   if (!def) return null;
   for (const metric of Object.keys(def.units ?? {})) {
     const h = store.history(kind, metric, "", 60);
@@ -189,7 +192,11 @@ const server = createServer(async (req, res) => {
       last_report: lastReport,
       next_sweep_ms: SWEEP_MS,
       observations: store.observationCount(),
-      sources: SOURCES.map((s) => ({ kind: s.kind, label: s.label, group: s.group, premise: s.premise, attribution: s.attribution })),
+      window_days: WINDOW_DAYS,
+      sources: await Promise.all(COLLECTORS.map(async (c) => ({
+        kind: c.kind, label: c.label, area: c.area, premise: c.premise,
+        origin: c.origin, available: await c.available(),
+      }))),
       openclaw: oc,
       persona,
       db: DB_PATH,
@@ -242,7 +249,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[engine] http://localhost:${PORT}  db=${DB_PATH}`);
-  console.log(`[engine] ${SOURCES.length} sources · sweep every ${Math.round(SWEEP_MS / 60000)} min`);
+  console.log(`[engine] ${COLLECTORS.length} sources · sweep every ${Math.round(SWEEP_MS / 60000)} min`);
   openclawStatus().then((s) =>
     console.log(`[engine] openclaw: ${s.ok ? s.detail : `unavailable (${s.detail}) — using deterministic framing`}`),
   );

@@ -91,6 +91,12 @@ input, textarea { font: inherit; color: inherit; }
   color: #fff; background: var(--loom-accent);
 }
 
+.subtitle {
+  font-size: 11px; color: var(--loom-muted); white-space: nowrap;
+  padding-left: 2px; border-left: 1px solid var(--loom-border); margin-left: 2px;
+}
+@media (max-width: 1100px) { .subtitle { display: none; } }
+
 .spacer { flex: 1; }
 
 .status-pill {
@@ -370,5 +376,11 @@ input, textarea { font: inherit; color: inherit; }
 .board-spark { flex-shrink: 0; opacity: 0.75; }
 .board:hover .board-spark { opacity: 1; }
 
-.stat-strip .spacer { flex: 1; }
+.stat-strip .subtitle {
+  font-size: 11px; color: var(--loom-muted); white-space: nowrap;
+  padding-left: 2px; border-left: 1px solid var(--loom-border); margin-left: 2px;
+}
+@media (max-width: 1100px) { .subtitle { display: none; } }
+
+.spacer { flex: 1; }
 .stat-micro { flex-shrink: 0; align-self: center; }

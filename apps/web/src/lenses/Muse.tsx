@@ -120,10 +120,10 @@ export function Muse({
                   <Sparkline values={series.values} width={56} height={16} />
                 </span>
               )}
-              <span className="board-weight" title="Context weight — tokens this board's inputs would cost">
+              <span className="board-weight" title="Measurements this collector contributed">
                 {board.execution.token_weight > 999
                   ? `${(board.execution.token_weight / 1000).toFixed(1)}k`
-                  : board.execution.token_weight} tok
+                  : board.execution.token_weight} obs
               </span>
             </header>
 
@@ -132,7 +132,7 @@ export function Muse({
             <div className="board-body">
               {children.length === 0 && (
                 <div style={{ fontSize: 10.5, color: "var(--loom-muted)", padding: "6px 2px" }}>
-                  No claim cleared the significance floor this sweep.
+                  Nothing here cleared the significance floor this sweep.
                 </div>
               )}
               {children.map(({ node, insight, repeats }) => (

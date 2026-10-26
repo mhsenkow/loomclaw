@@ -1,117 +1,108 @@
 # LOOM // CLAW
 
-A two-lens spatial OS for human–agent co-reasoning over **live societal data**.
+**What your own data says about you.**
 
-It continuously polls public data about the world, runs real statistical
-detectors over it, and weaves the findings that survive into a narrative ranked
-by what *you* said you care about.
+A continuous analytical engine that reads the records this machine already keeps
+about you, runs real statistical tests over them, and weaves what survives into a
+narrative ranked by what you asked to understand.
+
+Everything runs locally. Nothing about you is uploaded.
 
 Built on two applications that already existed:
 
-| Reused | What it provides here |
+| Reused | What it provides |
 | :-- | :-- |
-| **`Loom_story_teller`** (deployed Worker at `loom.ibm.io`) | The data plane. `GET /api/source/<kind>` already handles upstream auth, fallbacks, shaping and caching for 65+ public feeds. LOOM // CLAW subscribes to it rather than re-implementing any of it. Its design tokens also carry over verbatim, so the two apps read as one product. |
-| **`openclaw`** (`OpenClaw-layoutexploration`) | The agent runtime, invoked headlessly as `openclaw agent exec --json`. It writes the *framing* around a finding. It never produces a number. |
+| **`Loom_story_teller`** | Its design tokens, so this reads as one product with it — and its deployed worker, for the one collector that looks outside this machine (the air where you live). |
+| **`openclaw`** (`OpenClaw-layoutexploration`) | The agent runtime, headless via `openclaw agent exec`, running on local Ollama. It writes the framing around a finding. It never produces a number. |
 
 ---
 
 ## The one idea
 
-There is **one** graph. The two views are projections of it, not separate state:
+There is **one** graph. Two views are projections of it, not separate state:
 
-- **The Weave** (macro) — nodes where `weave.is_pinned`, ordered by relevance to your goals.
-- **The Workshop** (micro) — the same nodes placed at `spatial.{x,y}` inside the Board that produced them, each Board anchored to its Execution Spine.
+- **The Weave** (macro) — the findings, ranked for what you asked about.
+- **The Workshop** (micro) — the same findings inside the area of your life that
+  produced them, each anchored to the Execution Spine that measured it.
 
-`Cmd + /` switches lens. "Zoom into the board that produced this" jumps from a
-story beat to the machinery behind it.
-
-### Reading the shape, not the sentence
-
-The Weave carries a full Vega-Lite chart per beat. The Workshop can't — it shows
-dozens of cards at once — so it uses inline SVG micro-charts instead, chosen to
-match the statistic being claimed:
-
-| Claim | Micro-chart | What you see |
-| :-- | :-- | :-- |
-| outlier (peers) | ranked bars, leader highlighted, median rule | the bar that broke away |
-| outlier (history) / trend | sparkline with median baseline | direction and where it is now |
-| concentration | Lorenz curve vs the line of equality | how far from even |
-| mix shift | paired observed/expected bars | which categories moved |
-| correlation | scatter | whether it is a line or a cloud |
-
-Board headers carry a sparkline of their own primary metric across sweeps, so the
-canvas shows the situation before you read a word of it.
+`Cmd + /` switches lens.
 
 ---
 
-## Why the insights are real
+## What it reads
 
-**Every number is computed before any model is involved.** OpenClaw is handed a
-finished statistic and asked only what it would mean and what would falsify it.
-It cannot change a value, and if it is unreachable the finding still ships with
-a locally generated framing. The status pill says which happened.
+Every collector reads something already on this machine.
 
-Five detectors, each reporting an effect size, a sample size and a p-value:
+| Collector | Source | What it can tell you |
+| :-- | :-- | :-- |
+| **What you build** | git history across every repo in `~` | when you work, on what, in what rhythm |
+| **Where your attention goes** | macOS `knowledgeC.db` | which apps hold you, for how long, at what hour |
+| **How you work with AI** | `~/.claude/projects` *(metadata only)* | when you reach for an agent, on which projects |
+| **Where you read** | Chrome history *(domains only)* | **off by default** — see below |
+| **The air where you live** | Loom worker, filtered to your city | the one environmental measure acting on you directly |
+
+Most repositories here are forks of other people's work, so commits are filtered
+to your identity — without that this would measure strangers. Identities come from
+`git config`, overridable with `LOOMCLAW_ME`.
+
+**Browsing is opt-in** (`LOOMCLAW_BROWSING=1`). Browsing history is the most
+revealing record on the machine, and a top-domain card is exactly the kind of
+finding you might not want rendered on a screen someone else can see. Filtering it
+silently would be both patronising and unreliable, so it simply stays off until
+you ask.
+
+---
+
+## Why the findings are real
+
+**Every number is computed before any model is involved.** OpenClaw receives a
+finished statistic and is asked only what it would mean and what would falsify it.
+It cannot change a value, and when it is unreachable the finding still ships with a
+locally generated framing. The header says which happened.
 
 | Detector | Question | Statistic |
 | :-- | :-- | :-- |
-| `zscore_outlier` | Who is unlike their peers, or unlike their own past? | robust z (MAD) |
-| `concentration` | Is this domain dominated by a few actors? | Gini vs a uniform null |
+| `zscore_outlier` | What stands out from the rest — or from your own past? | Poisson exceedance for event counts; robust z (MAD) for magnitudes |
+| `concentration` | Is your time going to a few places or spread evenly? | Gini vs a uniform null |
 | `trend_break` | Is something moving in a sustained direction? | OLS slope t-statistic |
 | `distribution_shift` | Did the *mix* change, not just the total? | χ² goodness-of-fit, Cramér's V |
-| `cross_correlation` | Do two independent feeds move together? | Pearson r via Fisher z |
+| `cross_correlation` | Do two different records of you move together? | Pearson r on first differences, Fisher z |
 
-### Guards that keep it honest
+### Guards, each added because output was wrong without it
 
-These exist because the first working version produced all three of these:
-
-- **Variance-stabilizing transforms.** A z-score on raw heavy-tailed data reported
-  *"BTC is a 1230σ outlier"* — that is a misspecified null, not a finding. Skew now
-  selects a log or sqrt scale, and the transform is named in the claim.
-- **Absolute effect floors.** *"reuters.com: 2 stories vs a median of 1"* clears 5σ on
-  count data and means nothing. A claim must also clear an absolute floor and a real multiple.
-- **Structural metrics.** Bitcoin outranking every altcoin by market cap is the
-  *definition* of the market, not news. Such metrics are excluded from
-  cross-sectional detectors but still watched for change over time.
-- **Novelty decay, floored.** A claim repeated across sweeps loses score, so the feed
-  cannot become the same five observations forever — but the floor matters too: with
-  unbounded decay a condition that stays true simply stops being reported at all.
-- **Informative-series check.** Several feeds return a fixed page size, so a metric like
-  "stories on the front page" is `30` every sweep. Correlating two such series gives
-  *r = −1.000 at p < 1e-11* — perfect and perfectly meaningless, because Pearson on
-  two-valued data is fixed by the two values. Series need real spread to be tested.
-- **FDR correction on correlations.** The scan tests ~200 pairs per sweep; at an
-  uncorrected p < 0.01 you expect false positives *every time*, which is how a monitor
-  reports that earthquakes track Hacker News points. Benjamini-Hochberg at q = 0.01
-  across the whole family, plus n ≥ 20, removed all of them.
-- **Base-rate guards.** "American cuisine has the most critical violations" is a fact
-  about how many American restaurants New York has, not about food safety. Raw counts
-  governed by population size are marked structural; the rate forms
-  (`critical_rate_by_cuisine`, `mean_score_by_cuisine`) are what get tested.
-- **Correlation on first differences.** Correlating two autocorrelated series *in levels*
-  is the spurious-regression trap — any two series drifting the same way score a high r.
-  Differencing asks the only useful question: when one moves, does the other move with it?
-- **Observations are deduplicated.** Sweeps run far more often than most sources publish
-  (NYC Open Data is daily). Recording an identical payload every sweep would manufacture
-  history — a test would see n=50 where the true independent sample is n=1. Unchanged
-  payloads are not recorded, so `n` means what it says.
-- **Retroactive retirement.** Tightening a detector re-validates what is already pinned,
-  including records written before a schema change. A claim that would not pass today is
-  unpinned, so the story never contradicts the engine that produced it.
-- **Honest gaps.** If nothing cleared significance for a topic you asked about, the
-  Weave says so rather than quietly substituting an adjacent topic.
+- **Right test for the data.** A robust z on seven weekdays cannot reach 3.5σ no
+  matter how lopsided your week is; MAD on seven points is too blunt. Event counts
+  get a Poisson test against an even split instead. But Poisson assumes variance =
+  mean, which is false for *magnitudes* — applied to lines-of-code it reported
+  136σ. Test selection follows the unit, not the datatype.
+- **Variance-stabilizing transforms.** A raw z on heavy-tailed data reported
+  "1230σ"; skew now selects a log or sqrt scale, named in the claim.
+- **Base-rate guards.** "American cuisine has the most violations" is a fact about
+  how many American restaurants exist. Population-driven counts are marked
+  structural; rates are what get tested.
+- **Correlation on first differences.** Correlating autocorrelated series *in
+  levels* is spurious regression — any two drifting series score a high r.
+- **FDR correction.** The correlation scan tests ~200 pairs; at an uncorrected
+  p < 0.01 you get false positives every time. Benjamini-Hochberg at q = 0.01.
+- **Honest `n`.** Observations are keyed on `(source, metric, dim, observed_at)`,
+  so replaying history is idempotent and `n` counts real observations rather than
+  duplicates from sweeping faster than the data changes.
+- **Merit separate from novelty.** Merit gates publication; novelty only orders it.
+  Folded together, a pattern that stayed true left the feed for being unsurprising.
+- **Stable claim identity.** A claim's node id derives from its fingerprint, so
+  re-detection updates it in place and anything not re-detected is retired.
 
 ---
 
-## The persona layer
+## Asking it something
 
-State a goal in your own words — *"follow the money in politics"*, *"food safety"*,
-*"my city, day to day"*, *"where science is heading"*. It resolves to topic weights
-that re-rank the graph. No re-fetch: the projection changes, the data does not.
+State what you want to understand in your own words — *"when do I do my best
+work"*, *"where is my attention leaking"*, *"am I overworking"*, *"what am I
+actually building"*. It resolves to topic weights that re-rank the graph. No
+re-collection: the projection changes, the data does not.
 
 Relevance scales the statistic rather than replacing it, so a weak finding in your
-topic still loses to a very strong one next door — but an off-topic finding has to
-be dramatically stronger to win.
+topic still loses to a very strong one next door.
 
 ---
 
@@ -121,65 +112,44 @@ be dramatically stronger to win.
 npm install && npm run dev
 ```
 
-- Web: http://localhost:7718
-- Engine: http://localhost:7717
-- Graph: `~/.loomclaw/graph.db` (SQLite, via Node 24's built-in `node:sqlite` — no native deps)
+- Web: http://localhost:7718 · Engine: http://localhost:7717
+- Graph: `~/.loomclaw/graph.db` (Node 24's built-in `node:sqlite`, no native deps)
 
-Requires Node 24+. A sweep runs on boot and every 15 minutes.
+Requires Node 24+ and Ollama for framing. A sweep runs on boot and every 15 minutes.
 
-### What you see when
-
-Cross-sectional detectors (outlier, concentration) fire on the **first sweep**.
-Longitudinal ones (trend, mix shift, correlation) need history and come online
-after roughly **8 sweeps (~2 hours)** — they are comparing a series against its
-own past, and there is no honest shortcut.
+Personal data is **historical** — your repos hold years of dated commits — so
+collectors backfill real daily buckets and trends work on the first run, rather
+than accumulating one sweep at a time.
 
 ### OpenClaw framing
 
-Narration runs **fully locally** against Ollama. No API key, no gateway, no network.
+Narration runs fully locally. Two things were in the way, and the engine routes
+around both rather than asking you to weaken anything:
 
-Two things were in the way, and the engine now routes around both rather than
-asking you to weaken anything:
+1. `gateway.auth.token` points at a **write-only** secret-store entry, and
+   `agent exec` resolves it *before* selecting a model — so every run failed with
+   `GATEWAY_SECRET_REF_UNAVAILABLE` even with an explicit local `--model`. The
+   engine passes a pinned config with no gateway block. Your config and secret
+   store are untouched.
+2. Without an override the run opens `~/.openclaw/agents/main`, whose SQLite lease
+   your own OpenClaw holds. The engine uses its own `OPENCLAW_STATE_DIR`.
 
-1. **The gateway secret.** The ambient `~/.openclaw/openclaw.json` points
-   `gateway.auth.token` at a store entry that is *write-only by design*.
-   `agent exec` resolves that reference before it selects a model, so every run
-   failed with `GATEWAY_SECRET_REF_UNAVAILABLE` — even with an explicit
-   `--model`. The engine passes `--config packages/engine/openclaw-narrator.json`,
-   a pinned config with no gateway block at all. Your real config and your
-   secret store are untouched.
-2. **The agent DB lease.** Without an override the run opens
-   `~/.openclaw/agents/main`, whose SQLite lease is held by your own running
-   OpenClaw. The engine sets `OPENCLAW_STATE_DIR=~/.loomclaw/openclaw-state`, so
-   it never contends with your main agent.
-
-The model must be **tool-capable** — OpenClaw sends a tool payload even on the
-lean surface, so `gemma3:27b` is rejected outright and small-context models like
-`llama3.2` overflow on the system prompt alone.
-
-| Variable | Default | Purpose |
-| :-- | :-- | :-- |
-| `LOOMCLAW_OPENCLAW_MODEL` | `ollama/llama3.3:latest` | Narration model |
-| `LOOMCLAW_OPENCLAW_CONFIG` | `packages/engine/openclaw-narrator.json` | Pinned config |
-| `LOOMCLAW_OPENCLAW_STATE` | `~/.loomclaw/openclaw-state` | Isolated agent state |
-| `LOOMCLAW_OPENCLAW_TIMEOUT` | `420` | Seconds per narration |
-
-The header reads *OpenClaw · n* when the agent wrote n framings this sweep, and
-*Framing: local* when it fell back. Hovering says why.
+The model must be **tool-capable** — OpenClaw sends a tool payload even on the lean
+surface, so `gemma3` is rejected and small-context models overflow on the system
+prompt. See `packages/engine/OPENCLAW-NARRATOR.md`.
 
 ### Env
 
 | Variable | Default | Purpose |
 | :-- | :-- | :-- |
-| `LOOM_BASE_URL` | `https://loom.ibm.io` | Loom Worker serving the feeds |
-| `LOOMCLAW_SWEEP_MS` | `900000` | Sweep interval |
-| `LOOMCLAW_NARRATE_BUDGET` | `3` | Findings per sweep sent to OpenClaw (token circuit-breaker) |
-| `LOOMCLAW_OPENCLAW` | — | `0` disables the agent entirely |
-| `LOOMCLAW_DB` | `~/.loomclaw/graph.db` | Graph location |
-
-```bash
-npm run sweep   # one sweep in the terminal, same code path
-```
+| `LOOMCLAW_ME` | from `git config` | your commit identities, comma-separated |
+| `LOOMCLAW_CODE_ROOT` | `~` | where to look for repositories |
+| `LOOMCLAW_WINDOW_DAYS` | `180` | how far back collectors reach |
+| `LOOMCLAW_HOME_CITY` | `New York` | city for the air-quality collector |
+| `LOOMCLAW_BROWSING` | unset | `1` enables the browsing collector |
+| `LOOMCLAW_OPENCLAW_MODEL` | `ollama/qwen2.5:7b` | narration model |
+| `LOOMCLAW_NARRATE_BUDGET` | `3` | findings per sweep sent to the agent |
+| `LOOMCLAW_SWEEP_MS` | `900000` | sweep interval |
 
 ---
 
@@ -188,43 +158,21 @@ npm run sweep   # one sweep in the terminal, same code path
 ```
 packages/core-schema   UnifiedGraphNode, GraphThreadEdge, ExecutionSpineStep, Insight
 packages/engine
-  sources/registry.ts  13 Loom feeds -> (metric, dim, value) observations
-  detectors/stats.ts   MAD, transforms, OLS, Pearson, Gini, χ², Fisher z
+  collectors/          git · screentime · ai · browsing · environment
+  detectors/stats.ts   MAD, transforms, Poisson, OLS, Pearson, Gini, χ², Fisher z, BH-FDR
   detectors/index.ts   the five detectors, scoring, Vega-Lite specs
-  interests.ts         persona -> topic weights -> ranking
-  openclaw.ts          headless agent bridge, with local fallback
+  interests.ts         goals -> topic weights -> ranking
+  openclaw.ts          headless agent bridge, local fallback
   graph.ts             SQLite: nodes, edges, spine_steps, observations
   sweep.ts             one full pass of the loop
-  server.ts            graph API + SSE stream + scheduler
-apps/web               Vite + React: Weave lens, Workshop lens, drawer
+apps/web               Weave lens, Workshop lens, micro-charts, drawer
 ```
-
-## Current sources
-
-**Earth / environment** `usgs` `nws` `aq`
-**Cities** `nyc311` `nyc_inspections`
-**US institutions** `faa_delays` `fda_recalls` `vehicle_recalls` `lobbying`
-**World** `openfood` `internet_outages` `crypto`
-**Web / science** `pageviews` `arxiv` `hn`
-
-A metric is only included if it measures the world rather than the query. `hn.story_count`
-is absent because the front page is always exactly 30 items; `nyc_inspections` reports
-rates rather than counts because the feed is capped at 1000 rows. With a fixed
-denominator, only rates carry information.
-
-Adding one is a single entry in `packages/engine/src/sources/registry.ts` — any of
-Loom's other ~50 feeds can be mounted the same way.
 
 ## Known limits
 
-- Longitudinal detectors are cold until ~8 sweeps have accumulated; correlations need
-  n ≥ 20, so they stay silent longer still. That is the honest cost of not reporting
-  underpowered results.
+- Screen Time needs Full Disk Access for your terminal, or that collector is skipped.
 - Topic routing is a keyword lexicon, not a classifier; an unmatched goal falls back
-  to pure statistical strength and says so.
-- Slow feeds accumulate history slowly *by design* — with daily sources, a trend needs
-  real days. The alternative is a p-value computed from duplicate rows.
-- Correlation over sweeps is not causal. FDR control bounds the share of false claims
-  among those published; it does not make a surviving one meaningful.
-- Threads between Boards exist in the schema and store, but the canvas does not draw
-  the bezier edges yet.
+  to statistical strength and says so.
+- Correlation between two records of you is not causation, and `cross_correlation`
+  needs n ≥ 20 before it will speak at all.
+- A git sweep over ~70 repositories takes ~20s; it is not yet incremental.
