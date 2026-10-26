@@ -72,6 +72,23 @@ correlation just another cross-source test.
 
 Each is tagged with the interests it serves, and only runs if you picked one of them.
 
+### World feeds with real history
+
+Ordinary world feeds are snapshots — one row per day, accumulating from the day you
+switch them on. That makes a you-versus-world correlation impossible for three weeks
+while your own data already carries months. Three upstreams expose real archives, so
+they are fetched as series and the overlap exists immediately:
+
+| | Source | Backfills |
+| :-- | :-- | :-- |
+| **What the world reads** | Wikimedia daily aggregate | ~180 days of global pageviews |
+| **What the Earth is doing** | USGS FDSN event API | ~180 days of M4.5+ quakes per day |
+| **What money is doing** | CoinGecko market chart | ~180 days of daily price and volume |
+
+Seismicity is deliberately a **control**: there is no plausible mechanism linking
+earthquakes to how you work, so if the engine ever reports that pair, the guards have
+failed.
+
 Most repositories here are forks of other people's work, so commits are filtered
 to your identity — without that this would measure strangers. Identities come from
 `git config`, overridable with `LOOMCLAW_ME`.
@@ -235,4 +252,8 @@ apps/web               Weave lens, Workshop lens, micro-charts, drawer
   to statistical strength and says so.
 - Correlation between two records of you is not causation, and `cross_correlation`
   needs n ≥ 20 before it will speak at all.
+- On a real run, 35 you-versus-world pairs tested and nothing was published. The
+  strongest was *your AI messages per day against global earthquakes per day*, at
+  r = 0.31, p = 0.015 — "significant" by the conventional p < 0.05, and exactly the
+  claim a naive tool would print. |r| ≥ 0.80 plus FDR correction rejected it.
 - A git sweep over ~70 repositories takes ~20s; it is not yet incremental.

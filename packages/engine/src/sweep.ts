@@ -69,6 +69,10 @@ function ensureBoard(store: GraphStore, kind: string, label: string, premise: st
     payload: { mime_type: "text/markdown", inline_content: premise },
     created_at: new Date().toISOString(),
   };
+  // Refresh the human-facing copy: a board created under an older label
+  // would otherwise keep it forever, since boards are created once.
+  node.title = label;
+  node.payload.inline_content = premise;
   node.execution.status = "running";
   node.execution.last_run_at = new Date().toISOString();
   store.upsertNode(node);

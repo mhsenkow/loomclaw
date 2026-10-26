@@ -5,6 +5,7 @@ import { aiCollector } from "./ai.ts";
 import { browsingCollector } from "./browsing.ts";
 import { environmentCollector } from "./environment.ts";
 import { WORLD_COLLECTORS } from "./world.ts";
+import { HISTORY_COLLECTORS } from "./world-history.ts";
 import { collectorEnabled } from "../profile.ts";
 import { healthCollector } from "./health.ts";
 
@@ -25,7 +26,7 @@ const SELF_COLLECTORS: Collector[] = [
  * world feeds your interests switched on. One list, because downstream
  * nothing distinguishes them — that is the point.
  */
-export const COLLECTORS: Collector[] = [...SELF_COLLECTORS, ...WORLD_COLLECTORS];
+export const COLLECTORS: Collector[] = [...SELF_COLLECTORS, ...HISTORY_COLLECTORS, ...WORLD_COLLECTORS];
 
 /** The subset that will actually run, given the profile. */
 export const activeCollectors = (): Collector[] => COLLECTORS.filter((c) => collectorEnabled(c));
