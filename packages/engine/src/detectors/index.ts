@@ -48,6 +48,8 @@ const MIN_HISTORY = 8;
 const MIN_CORR_N = 20;
 /** Expected share of false claims tolerated among published correlations. */
 const CORR_FDR = 0.01;
+/** Materiality floor for a correlation on first differences. */
+const MIN_CORR_R = 0.35;
 
 /**
  * First differences of a series.
@@ -316,8 +318,26 @@ function trends(store: GraphStore, def: Collector, current: Observation[], now: 
     const ys = hist.map((h) => h.value);
     if (!isInformative(ys)) continue;
     const fit = linearTrend(ys);
-    // |t| > 4 on >=12 points is a trend you would rarely get from noise.
-    if (!Number.isFinite(fit.t) || Math.abs(fit.t) < 4 || fit.r2 < 0.5) continue;
+    // |t| > 4 on >=12 points is a slope you would rarely get from noise.
+    if (!Number.isFinite(fit.t) || Math.abs(fit.t) < 4) continue;
+    /*
+     * R² was the wrong second gate and it silenced this detector entirely.
+     *
+     * R² is a descriptive goodness-of-fit, not a test: it reports how much
+     * variance the line explains, which is naturally low in any noisy
+     * real-world series even when the slope is certain. Global Wikipedia
+     * readership trends at |t| = 9.1 over 181 days with R² = 0.31 — that is
+     * an overwhelming slope buried in daily noise, and requiring R² ≥ 0.5
+     * threw it away along with every other real trend.
+     *
+     * The t-statistic already establishes the slope is non-zero. What it
+     * does not establish is that the slope MATTERS, so the second gate is
+     * now effect size: the trend must move the series by a visible fraction
+     * of its own level across the window.
+     */
+    const level = Math.abs(mean(ys));
+    const totalChange = Math.abs(fit.slope) * ys.length;
+    if (level > 0 && totalChange / level < 0.05) continue;
     const p = pFromZ(fit.t);
     if (p > MAX_P) continue;
 
@@ -341,8 +361,17 @@ function trends(store: GraphStore, def: Collector, current: Observation[], now: 
         points: hist.map((h) => ({ label: h.observed_at, value: h.value })),
         unit,
       },
+      /*
+       * A fitted line is the most direct evidence for a slope, but only
+       * while the points are still legible. At 181 days it is a smear of
+       * dots with a line through it, where a calendar grid shows the same
+       * decline AND the weekly rhythm underneath it. So the fit is forced
+       * only for series short enough to read as points.
+       */
       ...chart("trend", hist.map((h) => ({ label: h.observed_at, value: h.value })), {
-        unit, title: phrase(o.metric), fit, force: "trendFit",
+        unit, title: phrase(o.metric), fit,
+        ...(hist.length < 60 ? { force: "trendFit" as const } : {}),
+        summable: COUNT_UNITS.has(unit),
       }),
       merit: 0,
       score: 0,
@@ -476,7 +505,14 @@ export function crossCorrelations(store: GraphStore, now: string): Insight[] {
   const survivors = new Set(benjaminiHochberg(tested.map((t) => t.p), CORR_FDR));
   for (const [idx, { a, b, r, n, p }] of tested.entries()) {
     if (!survivors.has(idx)) continue;
-    if (Math.abs(r) < 0.8) continue;
+    /*
+     * 0.8 was a floor borrowed from correlations on levels. Differencing
+     * strips the shared trend that inflates those, so what remains is
+     * genuinely weaker even when real — behavioural series correlate around
+     * 0.2–0.4, not 0.8. The floor is a materiality bar; the FDR correction
+     * above is what controls false positives, and it is strict.
+     */
+    if (Math.abs(r) < MIN_CORR_R) continue;
     {
       const da = COLLECTOR_BY_KIND.get(a.kind), db = COLLECTOR_BY_KIND.get(b.kind);
       /*

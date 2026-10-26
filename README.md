@@ -147,7 +147,7 @@ locally generated framing. The header says which happened.
 | :-- | :-- | :-- |
 | `zscore_outlier` | What stands out from the rest — or from your own past? | Poisson exceedance for event counts; robust z (MAD) for magnitudes |
 | `concentration` | Is your time going to a few places or spread evenly? | Gini vs a uniform null |
-| `trend_break` | Is something moving in a sustained direction? | OLS slope t-statistic |
+| `trend_break` | Is something moving in a sustained direction? | OLS slope t-statistic, plus an effect-size floor |
 | `distribution_shift` | Did the *mix* change, not just the total? | χ² goodness-of-fit, Cramér's V |
 | `cross_correlation` | Do two different records of you move together? | Pearson r on first differences, Fisher z |
 
@@ -163,6 +163,13 @@ locally generated framing. The header says which happened.
 - **Base-rate guards.** "American cuisine has the most violations" is a fact about
   how many American restaurants exist. Population-driven counts are marked
   structural; rates are what get tested.
+- **The right second gate for a trend.** R² was used as a significance bar and it
+  silenced the detector completely — zero findings out of sixteen candidate series.
+  R² is a descriptive goodness-of-fit, not a test: it is naturally low in any noisy
+  real series even when the slope is certain. Global Wikipedia readership trends at
+  |t| = 9.1 over 181 days with R² = 0.31. The t-statistic already establishes the
+  slope is non-zero; the second gate is now effect size — the trend must move the
+  series by at least 5% of its own level across the window.
 - **Correlation on first differences.** Correlating autocorrelated series *in
   levels* is spurious regression — any two drifting series score a high r.
 - **FDR correction.** The correlation scan tests ~200 pairs; at an uncorrected
@@ -274,6 +281,13 @@ apps/web               Weave lens, Workshop lens, micro-charts, drawer
   to statistical strength and says so.
 - Correlation between two records of you is not causation, and `cross_correlation`
   needs n ≥ 20 before it will speak at all.
+- The **relationship** family has nothing to show, and that is the guard working
+  rather than a gap. Across 55 testable pairs the strongest correlation on first
+  differences is r = 0.36, and FDR across the family requires p ≤ 1.8e-4 for the
+  best of them. Nothing qualifies. The floor was also lowered from 0.8 to 0.35,
+  since 0.8 was borrowed from correlations on levels and differencing strips the
+  shared trend that inflates those — but that change publishes nothing today, and
+  was not meant to.
 - On a real run, 35 you-versus-world pairs tested and nothing was published. The
   strongest was *your AI messages per day against global earthquakes per day*, at
   r = 0.31, p = 0.015 — "significant" by the conventional p < 0.05, and exactly the

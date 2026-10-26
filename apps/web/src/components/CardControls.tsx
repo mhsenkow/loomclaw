@@ -35,8 +35,15 @@ export function CardControls({ insight, height }: { insight: Insight; height: nu
   const [topN, setTopN] = useState(Math.min(12, insight.evidence.points.length));
   const [logScale, setLogScale] = useState(false);
   const [window, setWindow] = useState(insight.evidence.points.length);
+  /*
+   * Until a control is touched, show the chart the engine chose. Rebuilding
+   * it immediately threw that choice away — a calendar became a plain line
+   * the moment it appeared in the feed. The re-cut is an action the reader
+   * takes, not the default view.
+   */
+  const [touched, setTouched] = useState(false);
 
-  const spec = useMemo(() => {
+  const recut = useMemo(() => {
     const pts = insight.evidence.points;
     const unit = insight.evidence.unit ?? "";
     if (ranked) {
@@ -72,6 +79,8 @@ export function CardControls({ insight, height }: { insight: Insight; height: nu
     };
   }, [insight, ranked, topN, logScale, window]);
 
+  const spec = touched ? recut : insight.vega_spec;
+
   return (
     <div className="card-app">
       <Chart spec={spec} height={height} />
@@ -81,7 +90,7 @@ export function CardControls({ insight, height }: { insight: Insight; height: nu
             top
             <input
               type="range" min={3} max={insight.evidence.points.length} value={topN}
-              onChange={(e) => setTopN(Number(e.target.value))}
+              onChange={(e) => { setTouched(true); setTopN(Number(e.target.value)); }}
               aria-label="How many to show"
             />
             <span className="card-app-value">{topN}</span>
@@ -91,7 +100,7 @@ export function CardControls({ insight, height }: { insight: Insight; height: nu
             last
             <input
               type="range" min={Math.min(7, insight.evidence.points.length)} max={insight.evidence.points.length} value={window}
-              onChange={(e) => setWindow(Number(e.target.value))}
+              onChange={(e) => { setTouched(true); setWindow(Number(e.target.value)); }}
               aria-label="How many days to show"
             />
             <span className="card-app-value">{window}d</span>
@@ -99,12 +108,16 @@ export function CardControls({ insight, height }: { insight: Insight; height: nu
         )}
         <button
           aria-pressed={logScale}
-          onClick={() => setLogScale((v) => !v)}
+          onClick={() => { setTouched(true); setLogScale((v) => !v); }}
           title="Log scale — for evidence that spans orders of magnitude"
         >
           log
         </button>
-        <span className="card-app-note">re-cut locally · the statistic above is unchanged</span>
+        <span className="card-app-note">
+          {touched
+            ? "re-cut locally · the statistic above is unchanged"
+            : `${insight.chart?.label ?? "Chart"} · drag or toggle to re-cut`}
+        </span>
       </div>
     </div>
   );
