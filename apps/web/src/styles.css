@@ -554,8 +554,16 @@ input, textarea { font: inherit; color: inherit; }
 }
 .rail-mark span { color: var(--loom-accent); padding: 0 1px; }
 
-.rail-lenses { display: flex; flex-direction: column; gap: 4px; }
-.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
+/*
+ * The view switch sits in the vertical middle, with the mark pinned to the
+ * top and the sweep action to the bottom. Two buttons hugging the top of a
+ * full-height rail read as leftovers; centred, they read as the rail's
+ * purpose.
+ */
+.rail-lenses {
+  flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px;
+}
+.rail-foot { display: flex; flex-direction: column; gap: 4px; }
 
 .rail-btn {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -619,3 +627,63 @@ input, textarea { font: inherit; color: inherit; }
 .footer .cmd { border-top: 0; padding-top: 0; }
 .footer .cmd-row { gap: 10px; }
 .footer .cmd-meta { display: none; }
+
+/* ---- source sidebar ---- */
+
+.srcbar {
+  flex-shrink: 0; width: 212px;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 8px;
+  background: color-mix(in srgb, var(--loom-surface) 70%, transparent);
+  border-right: 1px solid var(--loom-border);
+  overflow: hidden;
+}
+
+.srcbar-all {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  padding: 7px 9px; border-radius: var(--radius-md);
+  font-size: 12px; font-weight: 600; color: var(--loom-muted);
+  transition: all 150ms var(--ease-standard);
+}
+.srcbar-all > span:first-child { flex: 1; text-align: left; }
+.srcbar-all:hover { color: var(--loom-text); background: color-mix(in srgb, var(--loom-elevated) 75%, transparent); }
+.srcbar-all[aria-pressed="true"] {
+  color: var(--loom-accent); background: color-mix(in srgb, var(--loom-accent) 14%, transparent);
+}
+
+.srcbar-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+.srcbar-group h2 {
+  display: flex; align-items: baseline; gap: 6px;
+  margin: 0 0 4px; padding: 0 9px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--loom-label);
+}
+.srcbar-group-meta {
+  margin-left: auto; font-family: var(--font-mono); font-size: 9px;
+  letter-spacing: 0; opacity: .6;
+}
+
+.srcbar-row {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 5px 9px; border-radius: var(--radius-sm);
+  font-size: 11.5px; color: var(--loom-muted); text-align: left;
+  transition: all 140ms var(--ease-standard);
+}
+.srcbar-row:hover { color: var(--loom-text); background: color-mix(in srgb, var(--loom-elevated) 70%, transparent); }
+.srcbar-row[aria-pressed="true"] {
+  color: var(--loom-accent-dim);
+  background: color-mix(in srgb, var(--loom-accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--loom-accent);
+}
+.srcbar-row.off { opacity: .5; }
+.srcbar-row.off:hover { opacity: .8; }
+.srcbar-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srcbar-count {
+  font-family: var(--font-mono); font-size: 9.5px; opacity: .75;
+  padding: 0 4px; border-radius: 3px;
+  background: color-mix(in srgb, var(--loom-border) 50%, transparent);
+}
+.srcbar-off { font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+
+@media (max-width: 1180px) { .srcbar { display: none; } }

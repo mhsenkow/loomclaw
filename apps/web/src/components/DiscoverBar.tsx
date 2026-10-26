@@ -13,12 +13,13 @@ import {
 import { DETECTOR_LABEL } from "../lib/types.ts";
 
 export function DiscoverBar({
-  state, onChange, topics, sources,
+  state, onChange, topics,
 }: {
   state: BrowseState;
   onChange: (next: Partial<BrowseState>) => void;
   topics: { id: string; label: string }[];
-  sources: { kind: string; label: string }[];
+  // Source selection deliberately lives in the sidebar, not here: a list
+  // can show contribution and health, where a select shows neither.
 }) {
   return (
     <div className="discover-bar">
@@ -32,12 +33,6 @@ export function DiscoverBar({
         <select value={state.topic} onChange={(e) => onChange({ topic: e.target.value })} aria-label="Topic">
           <option value="all">All topics</option>
           {topics.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
-
-        <span>from</span>
-        <select value={state.source} onChange={(e) => onChange({ source: e.target.value })} aria-label="Source">
-          <option value="all">All sources</option>
-          {sources.map((s) => <option key={s.kind} value={s.kind}>{s.label}</option>)}
         </select>
 
         <span>with</span>

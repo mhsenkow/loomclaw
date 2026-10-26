@@ -9,6 +9,7 @@ import { Drawer } from "./components/Drawer.tsx";
 import { Onboarding, type TopicOption } from "./components/Onboarding.tsx";
 import { DiscoverBar } from "./components/DiscoverBar.tsx";
 import { CommandBar } from "./components/CommandBar.tsx";
+import { SourceList } from "./components/SourceList.tsx";
 import {
   applyBrowse, loadBrowse, saveBrowse, type BrowseState,
 } from "./lib/browseState.ts";
@@ -193,15 +194,19 @@ export default function App() {
         </div>
       </nav>
 
+      {onboarded !== false && !error && (
+        <SourceList
+          sources={status?.sources ?? []}
+          beats={beats}
+          selected={browse.source}
+          onSelect={(kind) => updateBrowse({ source: kind })}
+        />
+      )}
+
       <div className="shell">
         <header className="topbar">
           {lens === "weave" ? (
-            <DiscoverBar
-              state={browse}
-              onChange={updateBrowse}
-              topics={topicList}
-              sources={liveSources.map((c) => ({ kind: c.kind, label: c.label }))}
-            />
+            <DiscoverBar state={browse} onChange={updateBrowse} topics={topicList} />
           ) : (
             <p className="topbar-static">
               One board per source. Each shows what it reads, what it found this sweep, and the
