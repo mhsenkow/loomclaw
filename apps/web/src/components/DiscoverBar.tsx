@@ -13,13 +13,15 @@ import {
 import { DETECTOR_LABEL } from "../lib/types.ts";
 
 export function DiscoverBar({
-  state, onChange, topics,
+  state, onChange, topics, rankedFor,
 }: {
   state: BrowseState;
   onChange: (next: Partial<BrowseState>) => void;
   topics: { id: string; label: string }[];
   // Source selection deliberately lives in the sidebar, not here: a list
   // can show contribution and health, where a select shows neither.
+  /** The question the feed is currently ranked against, if any. */
+  rankedFor?: string | null;
 }) {
   return (
     <div className="discover-bar">
@@ -45,7 +47,16 @@ export function DiscoverBar({
 
         <span>by</span>
         <select value={state.sort} onChange={(e) => onChange({ sort: e.target.value as BrowseState["sort"] })} aria-label="Sort">
-          {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {/*
+            "Recommended" on its own never said recommended for what. When a
+            question is active it names it, so the sentence reads as the
+            whole state: this feed, ranked against that.
+          */}
+          {SORTS.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.id === "recommended" && rankedFor ? `Fit to “${rankedFor}”` : s.label}
+            </option>
+          ))}
         </select>
       </p>
 

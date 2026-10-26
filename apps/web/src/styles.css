@@ -608,19 +608,45 @@ input, textarea { font: inherit; color: inherit; }
 /*
  * The footer takes the feed's measure, not the window's. A full-width input
  * under a 54rem reading column reads as two unrelated pages stacked; lined
- * up with the cards it reads as the same page's bottom edge. The rule that
- * used to separate them is gone in favour of a fade, so the feed ends
- * rather than being cut off.
+ * up with the cards it reads as the same page's bottom edge.
+ *
+ * The edge between them is a slot the feed slides into. `.content` clips
+ * its scroll exactly at this line, so a gradient on the footer itself
+ * could only ever sit below the cut and the last card still ended on a
+ * hard horizontal edge. The two pseudo-elements below reach up over the
+ * feed instead: ::before dissolves the last 44px of it into the page, and
+ * ::after draws the lip — a hairline with its shadow thrown upward, so the
+ * light falls as it would on something passing underneath.
  */
 .footer {
+  position: relative;
   flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
-  padding: 12px 16px 14px;
+  padding: 14px 16px 14px;
+  background: var(--loom-bg);
+}
+.footer::before,
+.footer::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 100%;
+  pointer-events: none;
+}
+.footer::before {
+  height: 44px;
   background: linear-gradient(
-    to top,
-    var(--loom-bg) 62%,
-    color-mix(in srgb, var(--loom-bg) 40%, transparent)
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--loom-bg) 55%, transparent) 55%,
+    var(--loom-bg)
   );
 }
+.footer::after {
+  height: 1px;
+  background: color-mix(in srgb, var(--loom-border) 75%, transparent);
+  box-shadow:
+    0 -5px 10px -3px color-mix(in srgb, #000 45%, transparent),
+    0 -1px 0 0 color-mix(in srgb, #000 22%, transparent);
+}
+/* The near side of the slot catches a little light. */
+.footer { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--loom-elevated) 85%, transparent); }
 .footer > * {
   width: 100%;
   max-width: var(--measure, none);

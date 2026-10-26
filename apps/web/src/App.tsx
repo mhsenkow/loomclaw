@@ -112,6 +112,14 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  /*
+   * Asking a question re-ranks every finding against it server-side and
+   * returns the order in `rank`. Only the "recommended" sort reads `rank`,
+   * so with any other sort selected the answer arrived and was immediately
+   * thrown away — the chip lit up and nothing moved. Applying a persona now
+   * also selects the sort that shows it, because a ranking you cannot see
+   * is not a ranking.
+   */
   const applyPersona = async (label: string, goals: string) => {
     setBusy(true);
     try {
@@ -121,6 +129,7 @@ export default function App() {
       setGaps(r.gaps ?? []);
       setAgentFramed(r.framed_by_agent ?? 0);
       setLens("weave");
+      updateBrowse({ sort: "recommended", query: "" });
     } finally { setBusy(false); }
   };
 
@@ -247,7 +256,7 @@ export default function App() {
       <div className="shell" data-layout={browse.layout}>
         <header className="topbar">
           {lens === "weave" ? (
-            <DiscoverBar state={browse} onChange={updateBrowse} topics={topicList} />
+            <DiscoverBar state={browse} onChange={updateBrowse} topics={topicList} rankedFor={persona?.label ?? null} />
           ) : (
             <p className="topbar-static">
               One board per source. Each shows what it reads, what it found this sweep, and the
