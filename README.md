@@ -199,6 +199,15 @@ topic still loses to a very strong one next door.
 npm install && npm run dev
 ```
 
+> **A note if you are not the author.** The world feeds default to
+> `https://loom.ibm.io`, which is the author's own deployed Cloudflare Worker — not a
+> public API, and not something to point a fleet of clones at. It proxies public
+> upstreams (USGS, NOAA, openFDA, NYC Open Data and so on), so set `LOOM_BASE_URL` to
+> your own deployment of [`Loom_story_teller`](https://github.com/mhsenkow/Loom_story_teller)'s
+> `catalog-proxy` worker, or pick interests that use only the backfilled feeds
+> (Wikimedia, USGS and CoinGecko are fetched direct and need no proxy). The personal
+> collectors never touch the network at all.
+
 - Web: http://localhost:7718 · Engine: http://localhost:7717
 - Graph: `~/.loomclaw/graph.db` (Node 24's built-in `node:sqlite`, no native deps)
 
