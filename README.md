@@ -179,6 +179,31 @@ Sun 11) and no finding fires, which is correct. The same correction moved the
 time-of-day claim from "3 PM" to **10 PM** — the afternoon spike was one long
 session, the evening is the actual habit.
 
+### Pricing overdispersion
+
+Auditing every Poisson claim after the weekday bug found the same flaw almost
+everywhere. The test assumes variance equals mean; real categorical counts rarely
+oblige, because commits arrive in bursts, aftershocks follow earthquakes, and one
+storm system issues forty alerts.
+
+Estimating the dispersion φ from the **non-leading** categories — the leader is
+excluded so the signal cannot inflate its own null — and applying the standard
+quasi-Poisson correction changed the picture completely:
+
+| claim | σ before | φ | σ after |
+| :-- | --: | --: | --: |
+| `affected_by_manufacturer` | **7038** | 1,702,422 | *withdrawn* |
+| `commits_by_repo` | 45.4 | 122 | **4.1** |
+| `nyc311.count_by_complaint` | 39.9 | 36 | **6.7** |
+| `usgs.count_by_region` | 29.5 | 32 | **5.2** |
+| `arxiv.count_by_field` | 15.7 | 22 | *withdrawn* |
+
+The largest σ in the feed fell from 7038 to 12.6, two claims were withdrawn
+entirely, and every surviving one now names its own φ. `affected_by_manufacturer`
+was never a count at all — it sums vehicles per recall, so one 1.3M-vehicle filing
+is a single event wearing a magnitude's clothes; its unit now sits outside the
+count vocabulary.
+
 ### Guards, each added because output was wrong without it
 
 - **Right test for the data.** A robust z on seven weekdays cannot reach 3.5σ no

@@ -297,6 +297,30 @@ export interface Exceedance {
   /** Bonferroni-adjusted for having picked the largest of k categories. */
   p: number;
   k: number;
+  /** Estimated overdispersion; 1 means the Poisson assumption held. */
+  phi: number;
+}
+
+/**
+ * Overdispersion, estimated from the categories that are NOT the leader.
+ *
+ * Poisson assumes variance equals mean. Real categorical counts rarely
+ * oblige: commits arrive in bursts, aftershocks follow earthquakes, one
+ * storm system issues forty alerts. Pricing that in is the standard
+ * quasi-Poisson correction — Pearson χ² over its degrees of freedom.
+ *
+ * The leader is excluded from the estimate on purpose. Including the very
+ * category under test would let the signal inflate its own null and quietly
+ * suppress every true finding along with the false ones.
+ */
+function dispersionOf(values: number[]): number {
+  const rest = [...values].sort((a, b) => b - a).slice(1);
+  const k = rest.length;
+  if (k < 3) return 1;
+  const expected = rest.reduce((a, b) => a + b, 0) / k;
+  if (expected <= 0) return 1;
+  const chi2 = rest.reduce((a, o) => a + (o - expected) ** 2 / expected, 0);
+  return Math.max(1, chi2 / (k - 1));
 }
 
 export function poissonExceedance(values: number[], top: number): Exceedance | null {
@@ -305,11 +329,19 @@ export function poissonExceedance(values: number[], top: number): Exceedance | n
   if (k < 3 || total < 30) return null;
   const expected = total / k;
   if (expected <= 0) return null;
-  const z = (top - expected) / Math.sqrt(expected);
+
+  /*
+   * The dispersion correction is what stops a single burst reading as a
+   * pattern. Unadjusted, one firm recalling 1.3M vehicles scored 7038σ and
+   * one heavy week in a repository scored 45σ; priced correctly they are
+   * 5.4σ and 4.5σ, which is what the evidence actually supports.
+   */
+  const phi = dispersionOf(values);
+  const z = (top - expected) / Math.sqrt(phi * expected);
   // The maximum of k categories was chosen *because* it was the maximum, so
-  // its p-value must be corrected for that selection.
+  // its p-value must be corrected for that selection too.
   const p = Math.min(1, k * pFromZ(z));
-  return { z, expected, observed: top, p, k };
+  return { z, expected, observed: top, p, k, phi };
 }
 
 /** True when a series is count-like: non-negative whole numbers. */

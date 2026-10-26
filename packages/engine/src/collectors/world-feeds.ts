@@ -331,7 +331,11 @@ export const WORLD_FEEDS: SourceDef[] = [
     group: "us",
     premise: "Which manufacturers are recalling how many vehicles, and for what failing component.",
     attribution: "NHTSA",
-    units: { recall_count: "recalls", affected_by_manufacturer: "vehicles", count_by_component: "recalls" },
+    // `affected_by_manufacturer` SUMS vehicles per recall, so it is a
+    // magnitude and not a count of events — one 1.3M-vehicle recall is a
+    // single filing. Its unit must stay outside the count vocabulary or a
+    // Poisson test will price it as 7038σ.
+    units: { recall_count: "recalls", affected_by_manufacturer: "vehicles affected", count_by_component: "recalls" },
     extract: (p, now) => {
       if (!isTabular(p)) return [];
       const mfr = col(p, "manufacturer"), comp = col(p, "component"), aff = col(p, "potentially_affected");

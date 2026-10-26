@@ -148,7 +148,9 @@ function crossSectionalOutliers(def: Collector, current: Observation[], now: str
       if (counts.z < 4) continue;
       z = counts.z;
       p = counts.p;
-      statName = `Poisson exceedance vs even split (Bonferroni over ${counts.k})`;
+      statName = counts.phi > 1.5
+        ? `quasi-Poisson vs even split (φ=${counts.phi.toFixed(1)}, Bonferroni over ${counts.k})`
+        : `Poisson exceedance vs even split (Bonferroni over ${counts.k})`;
       comparison =
         `${fmt(top.value)}${unit ? " " + unit : ""} against ${fmt(counts.expected)} if spread evenly ` +
         `across ${counts.k} — ${(top.value / counts.expected).toFixed(1)}× its share (${z.toFixed(1)}σ)`;
