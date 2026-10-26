@@ -167,87 +167,6 @@ input, textarea { font: inherit; color: inherit; }
   border: 1px solid color-mix(in srgb, var(--loom-accent) 35%, transparent);
 }
 
-/* ---- muse lens ---- */
-
-.muse { flex: 1; overflow: auto; position: relative; background:
-  radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--loom-border) 70%, transparent) 1px, transparent 0) 0 0 / 26px 26px; }
-.canvas { position: relative; padding: 28px; min-width: max-content; min-height: max-content; }
-
-.board {
-  position: absolute;
-  border: 1px solid var(--loom-border); border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--loom-surface) 92%, transparent);
-  backdrop-filter: blur(3px);
-  box-shadow: var(--shadow-1);
-  display: flex; flex-direction: column; overflow: hidden;
-  transition: border-color 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
-}
-.board:hover { border-color: color-mix(in srgb, var(--loom-accent) 50%, var(--loom-border)); box-shadow: var(--shadow-2); }
-
-.board-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px; flex-shrink: 0;
-  border-bottom: 1px solid var(--loom-border);
-  background: color-mix(in srgb, var(--loom-elevated) 70%, transparent);
-}
-.board-title { font-size: 12px; font-weight: 650; flex: 1; letter-spacing: -0.005em; }
-.board-weight {
-  font-family: var(--font-mono); font-size: 10px; color: var(--loom-muted);
-  padding: 1px 6px; border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in srgb, var(--loom-border) 80%, transparent);
-}
-
-.board-premise {
-  padding: 8px 12px; font-size: 10.5px; line-height: 1.5; color: var(--loom-muted);
-  border-bottom: 1px solid color-mix(in srgb, var(--loom-border) 50%, transparent);
-}
-
-.board-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-
-.artifact {
-  padding: 8px 10px; border-radius: var(--radius-md);
-  border: 1px solid color-mix(in srgb, var(--loom-border) 80%, transparent);
-  background: var(--loom-elevated);
-  display: flex; flex-direction: column; gap: 5px;
-  transition: border-color 160ms var(--ease-standard);
-}
-.artifact:hover { border-color: color-mix(in srgb, var(--loom-accent) 50%, var(--loom-border)); }
-.artifact.pinned { border-left: 3px solid var(--loom-accent); }
-.artifact-title { font-size: 11px; line-height: 1.45; }
-.artifact-foot { display: flex; align-items: center; gap: 7px; }
-.artifact-stat { font-family: var(--font-mono); font-size: 9.5px; color: var(--loom-muted); flex: 1; }
-
-.pin-btn {
-  font-size: 12px; line-height: 1; padding: 3px 5px; border-radius: var(--radius-sm);
-  color: var(--loom-muted); transition: all 140ms var(--ease-standard);
-}
-.pin-btn:hover { color: var(--loom-accent-dim); background: color-mix(in srgb, var(--loom-accent) 14%, transparent); }
-.pin-btn.on { color: var(--loom-accent); }
-
-/* ---- execution spine ---- */
-
-.spine {
-  flex-shrink: 0; border-top: 1px solid var(--loom-border);
-  background: color-mix(in srgb, var(--loom-bg) 55%, transparent);
-}
-.spine summary {
-  padding: 6px 12px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--loom-muted); cursor: pointer; list-style: none;
-  display: flex; align-items: center; gap: 7px;
-}
-.spine summary::-webkit-details-marker { display: none; }
-.spine summary:hover { color: var(--loom-text); }
-.beads { display: flex; gap: 3px; }
-.bead { width: 6px; height: 6px; border-radius: 50%; background: var(--loom-success); }
-.bead.failed { background: var(--loom-warning); }
-.bead.running { background: var(--loom-accent); animation: pulse 1.2s infinite; }
-
-.spine-steps { padding: 2px 12px 10px; display: flex; flex-direction: column; gap: 5px; }
-.spine-step { display: flex; gap: 8px; font-family: var(--font-mono); font-size: 9.5px; line-height: 1.5; }
-.spine-step .tool { color: var(--loom-accent-dim); white-space: nowrap; }
-.spine-step .out { color: var(--loom-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.spine-step.failed .tool { color: var(--loom-warning); }
-
 /* ---- detail drawer ---- */
 
 .drawer-backdrop {
@@ -601,3 +520,175 @@ input, textarea { font: inherit; color: inherit; }
 .discover-search-icon { color: var(--loom-muted); font-size: 1.125rem; flex-shrink: 0; }
 .discover-search-clear { color: var(--loom-muted); font-size: 1rem; padding: 0 .25rem; }
 .discover-search-clear:hover { color: var(--loom-text); }
+
+/* =================================================================
+   Workshop — boards packed, cards to the same standard as the Weave
+   ================================================================= */
+
+.muse {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 24px;
+  background:
+    radial-gradient(circle at 1px 1px,
+      color-mix(in srgb, var(--loom-border) 55%, transparent) 1px, transparent 0)
+    0 0 / 26px 26px;
+}
+
+.wk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  grid-auto-rows: 10px;
+  column-gap: 12px;
+  align-items: start;
+}
+.wk-grid > .wk-board { grid-row-end: span var(--wk-span, 30); }
+
+/* ---- the board ---- */
+
+.wk-board {
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--loom-border) 65%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--loom-surface) 94%, transparent);
+  backdrop-filter: blur(3px);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.wk-board:hover { border-color: var(--loom-border); box-shadow: var(--shadow-1); }
+.wk-board.focused { border-color: var(--loom-accent); box-shadow: var(--shadow-2); }
+/* Your own boards carry the accent edge; world boards stay quiet. */
+.wk-board.self { border-left: 2px solid color-mix(in srgb, var(--loom-accent) 55%, transparent); }
+
+.wk-board-head {
+  display: flex; align-items: center; gap: 7px; flex-shrink: 0;
+  padding: 9px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--loom-border) 55%, transparent);
+  background: color-mix(in srgb, var(--loom-elevated) 55%, transparent);
+}
+.wk-board-head h3 {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 12.5px; font-weight: 650; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wk-spark { flex-shrink: 0; opacity: .7; }
+.wk-board:hover .wk-spark { opacity: 1; }
+.wk-obs {
+  flex-shrink: 0; font-family: var(--font-mono); font-size: 9.5px; color: var(--loom-muted);
+  padding: 1px 5px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--loom-border) 75%, transparent);
+}
+
+.wk-premise {
+  margin: 0; padding: 8px 11px;
+  font-size: 10.5px; line-height: 1.5; color: var(--loom-muted);
+  border-bottom: 1px solid color-mix(in srgb, var(--loom-border) 35%, transparent);
+}
+
+.wk-board-body { display: flex; flex-direction: column; gap: 7px; padding: 8px; }
+.wk-empty { margin: 0; padding: 4px 3px; font-size: 10.5px; color: var(--loom-muted); }
+
+/* ---- artifact card: the story card at canvas density ---- */
+
+.wk-card {
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--loom-border) 70%, transparent);
+  border-radius: var(--radius-md); background: var(--loom-elevated);
+  transition: border-color .15s ease;
+}
+.wk-card:hover { border-color: color-mix(in srgb, var(--loom-accent) 50%, var(--loom-border)); }
+.wk-card.pinned { border-left: 2px solid var(--loom-accent); }
+
+.wk-card-open {
+  display: flex; flex-direction: column; text-align: left;
+  width: 100%; min-width: 0; padding: 0;
+}
+.wk-card-open:focus-visible { outline: 2px solid var(--loom-accent); outline-offset: -2px; border-radius: .3rem; }
+
+.wk-card-preview {
+  position: relative; padding: 8px 9px 11px;
+  background: var(--chart-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--loom-border) 40%, transparent);
+}
+.wk-card-preview .micro { width: 100%; }
+.wk-card-kind {
+  position: absolute; left: 9px; bottom: 2px;
+  font-family: var(--font-mono); font-size: 8px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--loom-muted);
+}
+
+.wk-card-copy { display: flex; flex-direction: column; gap: 5px; padding: 8px 9px; }
+.wk-card-copy h4 {
+  margin: 0; font-size: 11px; font-weight: 600; line-height: 1.4;
+  letter-spacing: -.005em; overflow-wrap: anywhere;
+}
+.wk-card-stat {
+  display: flex; flex-direction: column; gap: 1px;
+  border-left: 1px solid color-mix(in srgb, var(--loom-accent) 45%, transparent);
+  padding-left: 6px;
+  font-family: var(--font-mono); font-size: 9px; line-height: 1.45; color: var(--loom-muted);
+}
+.wk-card-stat strong { color: var(--loom-text); font-weight: 500; }
+
+.wk-card-foot {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 4px 2px 9px;
+  border-top: 1px solid color-mix(in srgb, var(--loom-border) 40%, transparent);
+  font-size: 9px; color: var(--loom-muted);
+}
+.wk-card-meta { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wk-card-meta span[aria-hidden] { opacity: .5; }
+
+.pin-btn {
+  font-size: 12px; line-height: 1; padding: 3px 5px; border-radius: var(--radius-sm);
+  color: var(--loom-muted); transition: all .14s var(--ease-standard);
+}
+.pin-btn:hover { color: var(--loom-accent-dim); background: color-mix(in srgb, var(--loom-accent) 14%, transparent); }
+.pin-btn.on { color: var(--loom-accent); }
+
+.wk-topics { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 10px 8px; }
+
+/* ---- execution spine ---- */
+
+.spine {
+  flex-shrink: 0; margin-top: auto;
+  border-top: 1px solid color-mix(in srgb, var(--loom-border) 55%, transparent);
+  background: color-mix(in srgb, var(--loom-bg) 45%, transparent);
+}
+.spine summary {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 11px; cursor: pointer; list-style: none;
+  font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--loom-muted);
+}
+.spine summary::-webkit-details-marker { display: none; }
+.spine summary:hover { color: var(--loom-text); }
+.spine-failed { color: var(--loom-warning); }
+.beads { display: flex; gap: 3px; }
+.bead { width: 6px; height: 6px; border-radius: 50%; background: var(--loom-success); }
+.bead.failed { background: var(--loom-warning); }
+.bead.running { background: var(--loom-accent); animation: pulse 1.2s infinite; }
+
+.spine-steps { display: flex; flex-direction: column; gap: 4px; padding: 2px 11px 9px; }
+.spine-step {
+  display: flex; gap: 7px; align-items: baseline;
+  font-family: var(--font-mono); font-size: 9px; line-height: 1.5;
+}
+.spine-step .tool { color: var(--loom-accent-dim); white-space: nowrap; }
+.spine-step .out { flex: 1; min-width: 0; color: var(--loom-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spine-step .ms { color: var(--loom-muted); opacity: .6; white-space: nowrap; }
+.spine-step.failed .tool { color: var(--loom-warning); }
+
+/* A retired claim stays visible as provenance, but never looks live. */
+.wk-card.stale { opacity: .55; border-style: dashed; }
+.wk-card.stale:hover { opacity: .85; }
+.wk-card.stale .wk-card-preview { filter: grayscale(.7); }
+.wk-superseded {
+  align-self: flex-start; padding: 1px 5px; border-radius: var(--radius-sm);
+  font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--loom-warning);
+  background: color-mix(in srgb, var(--loom-warning) 14%, transparent);
+}
+
+/* Says what the view is, so the tab label never has to be guessed at. */
+.lens-explainer {
+  margin: 0 0 14px; max-width: 72ch;
+  font-size: 11.5px; line-height: 1.6; color: var(--loom-muted);
+}
+.muse .lens-explainer { margin-bottom: 16px; }

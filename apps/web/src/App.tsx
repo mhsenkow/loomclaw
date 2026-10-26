@@ -121,15 +121,39 @@ export default function App() {
   // Count framings standing in the weave, not just the last sweep's delta.
   const agentFramings = agentFramed;
 
+  /** Which scope a board belongs to, from the collector list the engine reports. */
+  const scopeOf = useCallback(
+    (kind: string): "self" | "world" =>
+      status?.sources.find((c) => c.kind === kind)?.scope ?? "world",
+    [status],
+  );
+
   return (
     <div className="app">
       <header className="topbar">
         <span className="wordmark">LOOM <span>//</span> CLAW</span>
-        <span className="subtitle">what your own data says about you</span>
+        <span className="subtitle">{lens === "weave" ? "what your data says about you" : "every source, and how each finding was measured"}</span>
 
+        {/*
+          These were "Weave" and "Workshop", carried over from the design docs.
+          Nobody could tell what either one meant without being told, which is
+          a failure of the label rather than of the reader.
+        */}
         <div className="lens-toggle">
-          <button aria-pressed={lens === "weave"} onClick={() => setLens("weave")}>Weave</button>
-          <button aria-pressed={lens === "muse"} onClick={() => setLens("muse")}>Workshop</button>
+          <button
+            aria-pressed={lens === "weave"}
+            onClick={() => setLens("weave")}
+            title="Every finding, ranked and filterable"
+          >
+            Findings
+          </button>
+          <button
+            aria-pressed={lens === "muse"}
+            onClick={() => setLens("muse")}
+            title="Where each finding came from, and the steps that measured it"
+          >
+            Where it comes from
+          </button>
         </div>
 
         <span className="spacer" />
@@ -212,6 +236,7 @@ export default function App() {
         <Muse
           boards={boards}
           focusBoardId={focusBoard}
+          scopeOf={scopeOf}
           onPin={pin}
           onOpen={(insight, node) => setOpen({ insight, node })}
         />

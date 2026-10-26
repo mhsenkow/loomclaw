@@ -38,9 +38,14 @@ Stored at `~/.loomclaw/profile.json`. Delete it to run onboarding again.
 
 There is **one** graph. Two views are projections of it, not separate state:
 
-- **The Weave** (macro) — the findings, ranked for what you asked about.
-- **The Workshop** (micro) — the same findings inside the area of your life that
-  produced them, each anchored to the Execution Spine that measured it.
+- **Findings** — everything that cleared significance, ranked and filterable.
+- **Where it comes from** — the same findings grouped by the source that produced
+  them, each board carrying its premise, its observation count, its topic tags and
+  the Execution Spine that measured it.
+
+These were called "the Weave" and "the Workshop", after the design docs. Nobody could
+tell what either meant without being told, which is a failure of the label rather than
+of the reader, so both now say what they do and carry a line of explanation.
 
 `Cmd + /` switches lens.
 

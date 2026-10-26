@@ -79,6 +79,11 @@ export function Weave({
       <DiscoverBar state={browse} onChange={update} topics={topics} sources={sources} />
 
       <div className="discover-scroll">
+        <p className="lens-explainer">
+          Everything that cleared statistical significance, from your own data and the world
+          feeds you picked. Open any card to see how it was measured.
+        </p>
+
         {gaps.length > 0 && (
           <p className="discover-gap">
             Nothing cleared significance for <strong>{gaps.join(", ")}</strong>. What follows is
