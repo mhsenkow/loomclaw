@@ -150,6 +150,34 @@ locally generated framing. The header says which happened.
 | `trend_break` | Is something moving in a sustained direction? | OLS slope t-statistic, plus an effect-size floor |
 | `distribution_shift` | Did the *mix* change, not just the total? | χ² goodness-of-fit, Cramér's V |
 | `cross_correlation` | Do two different records of you move together? | Pearson r on first differences, Fisher z |
+| `weekly_rhythm` | Does the day of the week decide this? | Kruskal–Wallis across weekdays, ε² |
+| `shared_rhythm` | Do two series keep the same week? | Spearman ρ on weekday profiles, Bonferroni |
+
+### The overdispersion bug, which is the one worth reading
+
+The engine spent several days confidently reporting **"Thursday leads your commits:
+337 against 176 if spread evenly — 12.1σ"**. It was wrong, and the Kruskal–Wallis
+test added for weekly rhythm is what caught it: on the same data it reports no
+weekday effect whatsoever, ε² = 0 at p = 0.70.
+
+Both cannot be right. The daily numbers say which:
+
+| | total | days | median | max | variance ÷ mean |
+| :-- | --: | --: | --: | --: | --: |
+| Thursday | 337 | 16 | 8 | **113** | 42 |
+| Friday | 264 | 17 | 4 | **136** | 63 |
+| Wednesday | 185 | 18 | 4 | 56 | 23 |
+
+Poisson assumes variance ÷ mean = 1. These run 10–60×, because commits arrive in
+bursts: a single 113-commit Thursday carried the entire "pattern" while the median
+Thursday sat beside the median Wednesday. The unit was a count, so the earlier
+unit-based guard let it through — the real violation was independence, not type.
+
+The fix is to measure something bursts cannot inflate: **days active**, where one
+frantic afternoon counts once. Under that measure the week is nearly flat (Mon 19,
+Sun 11) and no finding fires, which is correct. The same correction moved the
+time-of-day claim from "3 PM" to **10 PM** — the afternoon spike was one long
+session, the evening is the actual habit.
 
 ### Guards, each added because output was wrong without it
 

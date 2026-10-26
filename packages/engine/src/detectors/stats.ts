@@ -315,3 +315,87 @@ export function poissonExceedance(values: number[], top: number): Exceedance | n
 /** True when a series is count-like: non-negative whole numbers. */
 export const isCountLike = (xs: number[]) =>
   xs.every((v) => Number.isInteger(v) && v >= 0);
+
+/**
+ * Kruskal-Wallis: does a value differ across groups?
+ *
+ * Chosen over a one-way ANOVA because this data is relentlessly skewed —
+ * one enormous commit day, one marathon screen session — and ANOVA's
+ * normality assumption is exactly what heavy tails break. Kruskal-Wallis
+ * ranks first, so a single extreme day shifts a rank by one place rather
+ * than dragging a mean across the chart. Its statistic is chi-square
+ * distributed, which this file can already price.
+ */
+export interface GroupDifference {
+  /** The H statistic. */
+  h: number;
+  df: number;
+  p: number;
+  /** Epsilon-squared: the share of rank variance the grouping explains, 0–1. */
+  epsilonSq: number;
+  n: number;
+  groups: number;
+}
+
+export function kruskalWallis(groups: number[][]): GroupDifference | null {
+  const present = groups.filter((g) => g.length > 0);
+  const k = present.length;
+  const n = present.reduce((a, g) => a + g.length, 0);
+  if (k < 3 || n < k * 3) return null;
+
+  // Rank everything together, averaging ranks within ties.
+  const flat = present.flatMap((g, gi) => g.map((v) => ({ v, gi })));
+  flat.sort((a, b) => a.v - b.v);
+  const ranks = new Array<number>(flat.length);
+  for (let i = 0; i < flat.length; ) {
+    let j = i;
+    while (j + 1 < flat.length && flat[j + 1].v === flat[i].v) j++;
+    const avg = (i + j + 2) / 2; // ranks are 1-based
+    for (let t = i; t <= j; t++) ranks[t] = avg;
+    i = j + 1;
+  }
+
+  const sumByGroup = new Array<number>(k).fill(0);
+  const sizeByGroup = new Array<number>(k).fill(0);
+  flat.forEach((f, i) => { sumByGroup[f.gi] += ranks[i]; sizeByGroup[f.gi]++; });
+
+  let h = 0;
+  for (let g = 0; g < k; g++) {
+    if (!sizeByGroup[g]) continue;
+    h += (sumByGroup[g] ** 2) / sizeByGroup[g];
+  }
+  h = (12 / (n * (n + 1))) * h - 3 * (n + 1);
+
+  // Correct for ties, which otherwise deflate H.
+  const counts = new Map<number, number>();
+  for (const f of flat) counts.set(f.v, (counts.get(f.v) ?? 0) + 1);
+  let tieSum = 0;
+  for (const c of counts.values()) if (c > 1) tieSum += c ** 3 - c;
+  const correction = 1 - tieSum / (n ** 3 - n);
+  if (correction > 0) h /= correction;
+
+  const df = k - 1;
+  return {
+    h, df,
+    p: pFromChiSquare(h, df),
+    epsilonSq: n > k ? Math.max(0, (h - k + 1) / (n - k)) : 0,
+    n, groups: k,
+  };
+}
+
+/** Spearman rank correlation — for comparing profiles that are shapes, not levels. */
+export function spearman(a: number[], b: number[]): number {
+  const rank = (xs: number[]) => {
+    const idx = xs.map((v, i) => ({ v, i })).sort((x, y) => x.v - y.v);
+    const r = new Array<number>(xs.length);
+    for (let i = 0; i < idx.length; ) {
+      let j = i;
+      while (j + 1 < idx.length && idx[j + 1].v === idx[i].v) j++;
+      const avg = (i + j + 2) / 2;
+      for (let t = i; t <= j; t++) r[idx[t].i] = avg;
+      i = j + 1;
+    }
+    return r;
+  };
+  return pearson(rank(a), rank(b)).r;
+}

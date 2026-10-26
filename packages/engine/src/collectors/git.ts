@@ -71,8 +71,8 @@ export const gitCollector: Collector = {
   units: {
     commits_per_day: "commits", repos_per_day: "repos", lines_per_day: "lines",
     late_night_share: "%", message_length: "chars",
-    commits_by_repo: "commits", commits_by_hour: "commits",
-    commits_by_weekday: "commits", lines_by_language: "lines",
+    commits_by_repo: "commits", lines_by_language: "lines",
+    days_active_by_hour: "days", days_active_by_weekday: "days",
   },
 
   available: async () => {
@@ -143,8 +143,20 @@ export const gitCollector: Collector = {
         commits.map((c) => ({ at: c.at, value: c.at.getHours() < 5 ? 100 : 0 })), "mean"),
       // --- cross-sectional: the shape ---
       ...totals("git", "commits_by_repo", tallyBy(commits, (c) => c.repo), now),
-      ...totals("git", "commits_by_hour", tallyBy(commits, (c) => HOURS[c.at.getHours()]), now, 24),
-      ...totals("git", "commits_by_weekday", tallyBy(commits, (c) => WEEKDAYS[c.at.getDay()]), now, 7),
+      /*
+       * Days active, not commits.
+       *
+       * Totalling commits per hour or weekday treats every commit as an
+       * independent draw, and commits arrive in bursts: one 113-commit
+       * Thursday made Thursday look like a 12σ weekly pattern while the
+       * median Thursday (8 commits) sat beside the median Wednesday (4).
+       * Variance over mean ran 10–60× where Poisson assumes 1. Counting the
+       * distinct DAYS on which you worked in an hour caps any single burst
+       * at one, which is both burst-proof and the more honest question:
+       * when do you habitually work, not when did you once work a lot.
+       */
+      ...totals("git", "days_active_by_hour", distinctDays(commits, (c) => HOURS[c.at.getHours()]), now, 24),
+      ...totals("git", "days_active_by_weekday", distinctDays(commits, (c) => WEEKDAYS[c.at.getDay()]), now, 7),
       ...totals("git", "lines_by_language", sumBy(commits.flatMap((c) =>
         c.files.map((f) => [LANG[f.split(".").pop()?.toLowerCase() ?? ""] ?? null, 1] as [string | null, number]),
       )), now),
@@ -167,6 +179,19 @@ export const gitCollector: Collector = {
     };
   },
 };
+
+/** How many distinct calendar days fall in each bucket — one burst counts once. */
+function distinctDays(commits: { at: Date }[], key: (c: { at: Date }) => string | null): Map<string, number> {
+  const seen = new Map<string, Set<string>>();
+  for (const c of commits) {
+    const k = key(c);
+    if (!k) continue;
+    const day = `${c.at.getFullYear()}-${c.at.getMonth()}-${c.at.getDate()}`;
+    (seen.get(k) ?? seen.set(k, new Set()).get(k)!).add(day);
+  }
+  const sized = [...seen].map(([k, v]) => [k, v.size] as [string, number]);
+  return new Map(sized.sort((a, b) => b[1] - a[1]));
+}
 
 function tallyBy<T>(xs: T[], key: (x: T) => string | null): Map<string, number> {
   const m = new Map<string, number>();

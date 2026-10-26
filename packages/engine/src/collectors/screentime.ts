@@ -67,7 +67,7 @@ export const screenTimeCollector: Collector = {
   units: {
     screen_hours_per_day: "hours", app_switches_per_day: "switches",
     longest_session_min: "min", hours_by_app: "hours", hours_by_category: "hours",
-    sessions_by_hour: "sessions", hours_by_weekday: "hours",
+    days_active_by_hour: "days", hours_by_weekday: "hours",
   },
 
   available: async () => {
@@ -131,8 +131,15 @@ export const screenTimeCollector: Collector = {
           })),
           ...totals("screentime", "hours_by_app", byApp, now),
           ...totals("screentime", "hours_by_category", byCat, now, 12),
-          ...totals("screentime", "sessions_by_hour",
-            sessions.reduce((m, s) => m.set(HOURS[s.at.getHours()], (m.get(HOURS[s.at.getHours()]) ?? 0) + 1), new Map<string, number>()), now, 24),
+          // Distinct days per hour, for the same burst reason as git: a single
+          // marathon afternoon should not look like an afternoon habit.
+          ...totals("screentime", "days_active_by_hour",
+            [...sessions.reduce((m, s) => {
+              const h = HOURS[s.at.getHours()];
+              const day = `${s.at.getFullYear()}-${s.at.getMonth()}-${s.at.getDate()}`;
+              (m.get(h) ?? m.set(h, new Set<string>()).get(h)!).add(day);
+              return m;
+            }, new Map<string, Set<string>>())].reduce((m, [h, days]) => m.set(h, days.size), new Map<string, number>()), now, 24),
           ...totals("screentime", "hours_by_weekday",
             sessions.reduce((m, s) => {
               const k = WEEKDAYS[s.at.getDay()];

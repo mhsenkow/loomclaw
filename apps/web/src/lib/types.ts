@@ -1,6 +1,9 @@
 export interface Insight {
   id: string;
-  detector: "zscore_outlier" | "trend_break" | "concentration" | "distribution_shift" | "cross_correlation";
+  detector:
+    | "zscore_outlier" | "trend_break" | "concentration"
+    | "distribution_shift" | "cross_correlation"
+    | "weekly_rhythm" | "shared_rhythm";
   source_kind: string;
   metric: string;
   headline: string;
@@ -81,4 +84,6 @@ export const DETECTOR_LABEL: Record<Insight["detector"], string> = {
   concentration: "Concentration",
   distribution_shift: "Mix shift",
   cross_correlation: "Correlation",
+  weekly_rhythm: "Weekly rhythm",
+  shared_rhythm: "Shared rhythm",
 };

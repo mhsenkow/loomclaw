@@ -108,7 +108,9 @@ export type DetectorKind =
   | "trend_break"
   | "concentration"
   | "distribution_shift"
-  | "cross_correlation";
+  | "cross_correlation"
+  | "weekly_rhythm"
+  | "shared_rhythm";
 
 export interface InsightEvidence {
   /** The series the claim is made about, as [label, value] pairs. */

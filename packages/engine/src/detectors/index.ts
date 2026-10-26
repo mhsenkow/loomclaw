@@ -14,9 +14,9 @@ import type { GraphStore, Observation } from "../graph.ts";
 import { CHART_FAMILY, CHART_LABEL, build, chooseKind, type ChartFamily, type Pt } from "./charts.ts";
 import { COLLECTOR_BY_KIND, type Collector } from "../collectors/index.ts";
 import {
-  benjaminiHochberg, correlationP, gini, isCountLike, isInformative, linearTrend,
-  mean, median, pFromChiSquare, pFromZ, pearson, poissonExceedance, scaledRobustZ,
-  sd, uniformGiniNull,
+  benjaminiHochberg, correlationP, gini, isCountLike, isInformative, kruskalWallis,
+  linearTrend, mean, median, pFromChiSquare, pFromZ, pearson, poissonExceedance,
+  scaledRobustZ, sd, spearman, uniformGiniNull,
 } from "./stats.ts";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -102,6 +102,9 @@ const COUNT_UNITS = new Set([
   "commits", "sessions", "visits", "switches", "events", "repos", "domains",
   "messages", "stories", "papers", "requests", "alerts", "filings", "recalls",
   "quakes", "products", "inspections", "violations", "vehicles",
+  // Days active is the burst-proof count: one day contributes at most one,
+  // which is exactly the independence Poisson needs.
+  "days",
 ]);
 
 /**
@@ -465,7 +468,176 @@ function distributionShift(store: GraphStore, def: Collector, current: Observati
 }
 
 // =================================================================
-// 6. Cross-source correlation — the one that spans domains
+// 6. Weekly rhythm — does the day of the week decide this?
+// =================================================================
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Minimum complete days before a weekday profile is worth computing. */
+const MIN_RHYTHM_DAYS = 28;
+
+/** Mean value per weekday, and the raw groups the test needs. */
+function weekdayProfile(obs: { value: number; observed_at: string }[]) {
+  const groups: number[][] = Array.from({ length: 7 }, () => []);
+  for (const o of obs) {
+    // dayKey stamps the local date at UTC midnight, so UTC day is the local day.
+    const d = new Date(o.observed_at).getUTCDay();
+    if (Number.isFinite(d)) groups[d].push(o.value);
+  }
+  const profile = groups.map((g, i) => ({
+    label: WEEKDAYS[i],
+    value: g.length ? g.reduce((a, b) => a + b, 0) / g.length : 0,
+    n: g.length,
+  }));
+  return { groups, profile };
+}
+
+/**
+ * Does this series depend on the day of the week?
+ *
+ * Distinct from the Poisson weekday test, which asks whether one day holds
+ * more of a total than an even split would give. This asks whether the
+ * day-to-day values are drawn from different distributions at all — a
+ * weekend that is reliably quieter shows up here and not there, because its
+ * share can look ordinary while its level never does.
+ */
+function weeklyRhythms(store: GraphStore, def: Collector, current: Observation[], now: string): Insight[] {
+  if (!def.dailyGrain) return [];
+  const out: Insight[] = [];
+
+  for (const o of current) {
+    if (o.dim) continue;
+    const hist = store.history(def.kind, o.metric, "", 400);
+    if (hist.length < MIN_RHYTHM_DAYS) continue;
+
+    const { groups, profile } = weekdayProfile(hist);
+    if (profile.filter((p) => p.n >= 3).length < 5) continue;
+
+    const kw = kruskalWallis(groups);
+    if (!kw || kw.p > MAX_P) continue;
+    // Explaining under a tenth of the rank variance is a rhythm nobody feels.
+    if (kw.epsilonSq < 0.1) continue;
+
+    const ranked = [...profile].filter((p) => p.n > 0).sort((a, b) => b.value - a.value);
+    const high = ranked[0], low = ranked[ranked.length - 1];
+    if (!high || !low || low.value <= 0) continue;
+    const ratio = high.value / low.value;
+    if (ratio < 1.3) continue;
+
+    const unit = unitOf(def, o.metric);
+    out.push({
+      id: `ins_${uid()}`,
+      detector: "weekly_rhythm",
+      source_kind: def.kind,
+      metric: o.metric,
+      headline:
+        (def.scope === "self"
+          ? `Your week has a shape: ${phrase(o.metric)} runs `
+          : `${def.label}: ${phrase(o.metric)} runs `) +
+        `${ratio.toFixed(1)}× higher on ${high.label} than ${low.label} ` +
+        `(${fmt(high.value)} vs ${fmt(low.value)}${unit ? " " + unit : ""}, across ${kw.n} days)`,
+      statistic: {
+        name: `Kruskal–Wallis across weekdays (ε²=${kw.epsilonSq.toFixed(2)})`,
+        value: kw.h,
+        effect_size: kw.epsilonSq * 20,
+        p_value: kw.p,
+        n: kw.n,
+      },
+      evidence: { points: profile.filter((p) => p.n > 0).map(({ label, value }) => ({ label, value })), unit },
+      merit: 0,
+      score: 0,
+      detected_at: now,
+      ...chart("comparison", profile.filter((p) => p.n > 0).map(({ label, value }) => ({ label, value })), {
+        unit, title: phrase(o.metric), force: "orderedBar",
+      }),
+    });
+  }
+  return out;
+}
+
+// =================================================================
+// 7. Shared rhythm — two records of you keeping the same week
+// =================================================================
+
+/**
+ * Do two series keep the same week?
+ *
+ * A better relationship hypothesis than day-to-day correlation, and for a
+ * concrete reason: differenced daily series are dominated by noise, so real
+ * associations sit near r = 0.3 and never survive multiplicity correction.
+ * Weekly profiles average that noise away. Seven points is a small sample,
+ * so the bar is deliberately high and the claim is about shape — whether the
+ * two rise and fall on the same days — not about level.
+ */
+export function sharedRhythms(store: GraphStore, rhythms: Insight[], now: string): Insight[] {
+  // Only series that have already been shown to have a rhythm of their own.
+  const withRhythm = rhythms.filter((r) => r.detector === "weekly_rhythm");
+  if (withRhythm.length < 2) return [];
+
+  const tested: { a: Insight; b: Insight; rho: number }[] = [];
+  for (let i = 0; i < withRhythm.length; i++) {
+    for (let j = i + 1; j < withRhythm.length; j++) {
+      const a = withRhythm[i], b = withRhythm[j];
+      if (a.source_kind === b.source_kind) continue;
+      const days = a.evidence.points.map((p) => p.label)
+        .filter((d) => b.evidence.points.some((q) => q.label === d));
+      if (days.length < 6) continue;
+      const av = days.map((d) => a.evidence.points.find((p) => p.label === d)!.value);
+      const bv = days.map((d) => b.evidence.points.find((p) => p.label === d)!.value);
+      tested.push({ a, b, rho: spearman(av, bv) });
+    }
+  }
+  if (!tested.length) return [];
+
+  const out: Insight[] = [];
+  for (const { a, b, rho } of tested) {
+    // Seven points: only a near-identical shape is worth claiming, and the
+    // p-value is Bonferroni-corrected for every pair considered.
+    if (Math.abs(rho) < 0.82) continue;
+    const raw = correlationP(rho, 7);
+    const p = Math.min(1, raw * tested.length);
+    if (p > MAX_P) continue;
+
+    const da = COLLECTOR_BY_KIND.get(a.source_kind), db = COLLECTOR_BY_KIND.get(b.source_kind);
+    const agree = rho > 0;
+    const days = a.evidence.points.map((x) => x.label);
+    out.push({
+      id: `ins_${uid()}`,
+      detector: "shared_rhythm",
+      source_kind: `${a.source_kind}+${b.source_kind}`,
+      metric: `${a.metric}+${b.metric}`,
+      headline:
+        `${da?.label ?? a.source_kind} ${phrase(a.metric)} and ${db?.label ?? b.source_kind} ${phrase(b.metric)} ` +
+        `keep ${agree ? "the same week" : "opposite weeks"}: their weekday shapes ` +
+        `${agree ? "rise and fall together" : "move against each other"} at ρ=${rho.toFixed(2)} ` +
+        `(Bonferroni over ${tested.length} pairs)`,
+      statistic: {
+        name: `Spearman ρ on weekday profiles (Bonferroni over ${tested.length})`,
+        value: rho,
+        effect_size: Math.abs(rho) * 8,
+        p_value: p,
+        n: days.length,
+      },
+      evidence: {
+        points: a.evidence.points.map((x) => ({ label: x.label, value: x.value })),
+        baseline: days.map((d) => b.evidence.points.find((q) => q.label === d)!),
+        unit: a.evidence.unit,
+      },
+      merit: 0,
+      score: 0,
+      detected_at: now,
+      ...chart("relationship", a.evidence.points.map((x) => ({ label: x.label, value: x.value })), {
+        title: `${a.source_kind} ${phrase(a.metric)}`,
+        unit: `${b.source_kind} ${phrase(b.metric)}`,
+        baselinePts: days.map((d) => b.evidence.points.find((q) => q.label === d)!),
+        force: "scatter",
+      }),
+    });
+  }
+  return out;
+}
+
+// =================================================================
+// 8. Cross-source correlation — the one that spans domains
 // =================================================================
 
 export function crossCorrelations(store: GraphStore, now: string): Insight[] {
@@ -622,6 +794,7 @@ export function runDetectors(store: GraphStore, kind: string, current: Observati
     ...levelShifts(store, def, longitudinal, now),
     ...trends(store, def, longitudinal, now),
     ...distributionShift(store, def, latest, now),
+    ...weeklyRhythms(store, def, longitudinal, now),
   ];
 }
 
@@ -646,6 +819,10 @@ export function meritOf(ins: Insight): number {
     trend_break: 1.0,
     distribution_shift: 0.95,
     cross_correlation: 1.0,
+    // A rhythm is a standing fact about how you live, which outlasts any
+    // single day's outlier; a shared one is rarer still.
+    weekly_rhythm: 1.0,
+    shared_rhythm: 1.0,
   };
   return effect * confidence * sample * depth[ins.detector];
 }

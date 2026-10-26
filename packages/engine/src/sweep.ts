@@ -14,9 +14,9 @@ import { createHash, randomUUID } from "node:crypto";
 import type {
   ExecutionSpineStep, Insight, UnifiedGraphNode,
 } from "@loomclaw/core-schema";
-import type { GraphStore } from "./graph.ts";
+import type { GraphStore, Observation } from "./graph.ts";
 import { COLLECTOR_BY_KIND, WINDOW_DAYS, activeCollectors } from "./collectors/index.ts";
-import { crossCorrelations, fingerprint, meritOf, runDetectors, scoreInsight } from "./detectors/index.ts";
+import { crossCorrelations, fingerprint, meritOf, runDetectors, scoreInsight, sharedRhythms } from "./detectors/index.ts";
 import { narrate, narrationStep } from "./openclaw.ts";
 import { anchorFor, userAnchors } from "./anchor.ts";
 
@@ -206,6 +206,37 @@ export async function runSweep(
       report.sources_failed.push({ kind: def.kind, error: res.error ?? "unknown" });
       board.execution.status = "error";
       store.upsertNode(board);
+
+      /*
+       * A failed fetch does not invalidate what is already stored.
+       *
+       * CoinGecko rate-limited one sweep and every finding about market
+       * rhythm vanished — not because the rhythm stopped being true, but
+       * because the loop skipped the source entirely. The longitudinal
+       * detectors read history out of the store anyway, so they can still
+       * run; only the cross-sectional ones genuinely need today's payload.
+       * The board still shows the error, so the outage is never hidden.
+       */
+      const stored = store.db
+        .prepare(
+          `SELECT source_kind, metric, dim, value, observed_at FROM observations
+            WHERE source_kind = ? AND observed_at >= ?`,
+        )
+        .all(def.kind, new Date(Date.now() - 400 * 86400_000).toISOString()) as unknown as Observation[];
+      if (stored.length) {
+        const salvaged = runDetectors(store, def.kind, stored, now);
+        step({
+          tool_name: "detector_scan",
+          input_args: { source: def.kind, using: "stored history (upstream unavailable)" },
+          stdout_preview: salvaged.length
+            ? `upstream down; ${salvaged.length} finding(s) still hold from ${stored.length} stored observations`
+            : "upstream down; nothing in stored history clears the floor",
+          status: "success",
+          duration_ms: 0,
+        });
+        report.insights_found += salvaged.length;
+        for (const insight of salvaged) candidates.push({ insight, boardId, spineId });
+      }
       continue;
     }
 
@@ -258,7 +289,11 @@ export async function runSweep(
   const xBoard = ensureBoard(store, "_cross", "Connections across your life", "Relationships that only appear when two different records of you are lined up on the same days — whether your sleep tracks your output, whether screen time tracks shipping.", COLLECTORS.length);
   const xSpine = `spine_cross_${sweepId.slice(0, 8)}`;
   const tx = Date.now();
-  const xFound = crossCorrelations(store, now);
+  // Shared rhythm reads the per-source rhythms this sweep already found,
+  // so it costs nothing extra and can only claim a pairing where both
+  // halves independently cleared their own test.
+  const rhythms = candidates.map((c) => c.insight).filter((i) => i.detector === "weekly_rhythm");
+  const xFound = [...crossCorrelations(store, now), ...sharedRhythms(store, rhythms, now)];
   store.addSpineStep({
     step_id: `step_${randomUUID().slice(0, 8)}`,
     spine_id: xSpine, sequence: 0, tool_name: "cross_correlation_scan",
